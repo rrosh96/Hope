@@ -1,5 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import { XMLParser } from 'fast-xml-parser';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -18,7 +19,6 @@ import { WebView } from 'react-native-webview';
 import {
   buildCategoryFeedUrls,
   categories,
-  fallbackPositiveFeeds,
   type FeedSource,
   type LocationContext,
   type NewsCategory,
@@ -99,6 +99,27 @@ const positiveSignals = [
   'launches',
 ];
 
+const humanBenefitSignals = [
+  'helps',
+  'help',
+  'improves',
+  'improve',
+  'support',
+  'supports',
+  'access',
+  'affordable',
+  'recovery',
+  'restore',
+  'restored',
+  'saves',
+  'saved',
+  'education',
+  'healthcare',
+  'treatment',
+  'community',
+  'jobs',
+];
+
 const negativeSignals = [
   'killed',
   'killing',
@@ -163,6 +184,35 @@ const negativeSignals = [
   'sentenced',
 ];
 
+const softCautionSignals = [
+  'lawsuit',
+  'warning',
+  'concern',
+  'concerns',
+  'decline',
+  'slowdown',
+  'pressure',
+  'pressures',
+  'challenge',
+  'challenges',
+  'risk',
+  'risks',
+  'probe',
+  'investigation',
+];
+
+const vagueNeutralSignals = [
+  'announces',
+  'announcement',
+  'says',
+  'report says',
+  'speaks',
+  'talks',
+  'update',
+  'updates',
+  'latest on',
+];
+
 const clickbaitSignals = [
   'you won’t believe',
   "you won't believe",
@@ -215,12 +265,243 @@ const publisherNameMap: Record<string, string> = {
   'yesmagazine.org': 'YES! Magazine',
 };
 
+const trustedSourceBonusNames = [
+  'reuters',
+  'bbc',
+  'npr',
+  'who',
+  'science daily',
+  'nature',
+  'phys org',
+  'new scientist',
+  'mit technology review',
+  'ars technica',
+  'techcrunch',
+  'espn',
+  'positive news',
+  'good news network',
+  'the better india',
+];
+
+const categorySignals: Record<NewsCategory, string[]> = {
+  All: [],
+  World: [
+    'world',
+    'global',
+    'international',
+    'community',
+    'humanitarian',
+    'development',
+    'nation',
+    'country',
+  ],
+  Business: [
+    'business',
+    'startup',
+    'company',
+    'market',
+    'economy',
+    'investment',
+    'jobs',
+    'expansion',
+    'funding',
+    'industry',
+  ],
+  Technology: [
+    'technology',
+    'tech',
+    'ai',
+    'software',
+    'app',
+    'robot',
+    'digital',
+    'innovation',
+    'startup technology',
+    'platform',
+  ],
+  Science: [
+    'science',
+    'research',
+    'study',
+    'scientist',
+    'discovery',
+    'medical',
+    'climate',
+    'lab',
+    'university',
+    'breakthrough',
+  ],
+  Sports: [
+    'sports',
+    'sport',
+    'athlete',
+    'team',
+    'match',
+    'tournament',
+    'championship',
+    'league',
+    'coach',
+    'medal',
+    'goal',
+    'win',
+    'comeback',
+  ],
+  Health: [
+    'health',
+    'hospital',
+    'treatment',
+    'medical',
+    'doctor',
+    'patient',
+    'wellness',
+    'recovery',
+    'vaccine',
+    'public health',
+  ],
+};
+
+const categoryConstructiveSignals: Record<NewsCategory, string[]> = {
+  All: [],
+  World: [
+    'humanitarian',
+    'peace talks',
+    'aid',
+    'rebuild',
+    'restoration',
+    'cooperation',
+    'development',
+    'relief',
+    'clean water',
+    'food security',
+  ],
+  Business: [
+    'hiring',
+    'expansion',
+    'new jobs',
+    'small business',
+    'startup success',
+    'investment',
+    'funding',
+    'profit growth',
+    'affordable',
+    'local business',
+  ],
+  Technology: [
+    'launch',
+    'rollout',
+    'open source',
+    'new tool',
+    'new app',
+    'helps doctors',
+    'helps students',
+    'faster',
+    'safer',
+    'efficient',
+    'accessibility',
+  ],
+  Science: [
+    'study finds',
+    'discovery',
+    'trial success',
+    'treatment works',
+    'conservation',
+    'emissions drop',
+    'new evidence',
+    'researchers develop',
+    'breakthrough',
+  ],
+  Sports: [
+    'win',
+    'comeback',
+    'championship',
+    'medal',
+    'qualify',
+    'sportsmanship',
+    'charity match',
+    'youth sports',
+    'community sports',
+    'para sport',
+  ],
+  Health: [
+    'recovery',
+    'treatment success',
+    'improved access',
+    'reduced risk',
+    'hospital opens',
+    'vaccination',
+    'public health success',
+    'lives saved',
+    'wellness',
+  ],
+};
+
 const minimumPositiveScore = 2;
-const targetStoryCount = 30;
+const targetStoryCount = 150;
 const initialVisibleStoryCount = 5;
 const loadMoreBatchSize = 5;
 const maxIntroWords = 50;
 const maxScore = 10;
+const seenStoriesStorageKey = 'hope:seen-stories';
+const visitCountStorageKey = 'hope:visit-count';
+const storiesCacheStorageKey = 'hope:stories-cache';
+const storiesCacheTimestampStorageKey = 'hope:stories-cache-timestamp';
+const diagnosticsStorageKey = 'hope:stories-diagnostics';
+const seenStoryCooldownMs = 3 * 24 * 60 * 60 * 1000;
+const storiesCacheTtlMs = 5 * 60 * 1000;
+
+interface CategoryDiagnostics {
+  fetched: number;
+  feedErrors: number;
+  invalidRejected: number;
+  validBase: number;
+  sourceRejected: number;
+  credibleSource: number;
+  duplicateRejected: number;
+  deduped: number;
+  seenRejected: number;
+  unseen: number;
+  categoryRejected: number;
+  categoryMatched: number;
+  positivityRejected: number;
+  accepted: number;
+  constructiveRejected: number;
+  cautionPenaltyHits: number;
+}
+
+type DiagnosticsMap = Record<NewsCategory, CategoryDiagnostics>;
+
+function createCategoryDiagnostics(): CategoryDiagnostics {
+  return {
+    fetched: 0,
+    feedErrors: 0,
+    invalidRejected: 0,
+    validBase: 0,
+    sourceRejected: 0,
+    credibleSource: 0,
+    duplicateRejected: 0,
+    deduped: 0,
+    seenRejected: 0,
+    unseen: 0,
+    categoryRejected: 0,
+    categoryMatched: 0,
+    positivityRejected: 0,
+    accepted: 0,
+    constructiveRejected: 0,
+    cautionPenaltyHits: 0,
+  };
+}
+
+function createEmptyDiagnostics(): DiagnosticsMap {
+  return {
+    All: createCategoryDiagnostics(),
+    World: createCategoryDiagnostics(),
+    Business: createCategoryDiagnostics(),
+    Technology: createCategoryDiagnostics(),
+    Science: createCategoryDiagnostics(),
+    Sports: createCategoryDiagnostics(),
+    Health: createCategoryDiagnostics(),
+  };
+}
 
 function countKeywordHits(text: string, keywords: string[]) {
   return keywords.reduce((total, keyword) => {
@@ -236,6 +517,144 @@ function truncateWords(text: string, maxWords: number) {
   }
 
   return `${words.slice(0, maxWords).join(' ')}...`;
+}
+
+function rotateArray<T>(items: T[], offset: number) {
+  if (items.length === 0) {
+    return items;
+  }
+
+  const normalizedOffset = offset % items.length;
+  return [...items.slice(normalizedOffset), ...items.slice(0, normalizedOffset)];
+}
+
+function shuffleArray<T>(items: T[]) {
+  const next = [...items];
+
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [next[index], next[randomIndex]] = [next[randomIndex], next[index]];
+  }
+
+  return next;
+}
+
+function isStoryFromToday(dateString: string) {
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) {
+    return false;
+  }
+
+  const now = new Date();
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  );
+}
+
+function computeLocalityScore(story: NewsItem, locationContext?: LocationContext) {
+  if (!locationContext) {
+    return 0;
+  }
+
+  const haystack = `${story.title} ${story.description} ${story.location} ${story.source}`.toLowerCase();
+  let score = 0;
+
+  for (const term of [locationContext.city, locationContext.region, locationContext.country]) {
+    if (!term) {
+      continue;
+    }
+
+    if (haystack.includes(term.toLowerCase())) {
+      score += 1;
+    }
+  }
+
+  return score;
+}
+
+async function loadSeenStories() {
+  try {
+    const rawValue = await AsyncStorage.getItem(seenStoriesStorageKey);
+    const parsed = rawValue ? (JSON.parse(rawValue) as Record<string, number>) : {};
+    const now = Date.now();
+    const prunedEntries = Object.entries(parsed).filter(
+      ([, seenAt]) => now - seenAt < seenStoryCooldownMs,
+    );
+    const prunedMap = Object.fromEntries(prunedEntries);
+
+    if (prunedEntries.length !== Object.keys(parsed).length) {
+      await AsyncStorage.setItem(seenStoriesStorageKey, JSON.stringify(prunedMap));
+    }
+
+    return prunedMap;
+  } catch {
+    return {};
+  }
+}
+
+async function markStorySeen(url: string) {
+  const seenStories = await loadSeenStories();
+  seenStories[url] = Date.now();
+  await AsyncStorage.setItem(seenStoriesStorageKey, JSON.stringify(seenStories));
+  return seenStories;
+}
+
+async function bumpVisitCount() {
+  try {
+    const rawValue = await AsyncStorage.getItem(visitCountStorageKey);
+    const currentValue = rawValue ? Number(rawValue) : 0;
+    const nextValue = Number.isFinite(currentValue) ? currentValue + 1 : 1;
+    await AsyncStorage.setItem(visitCountStorageKey, String(nextValue));
+    return nextValue;
+  } catch {
+    return 1;
+  }
+}
+
+async function loadStoriesCache() {
+  try {
+    const [rawStories, rawTimestamp] = await Promise.all([
+      AsyncStorage.getItem(storiesCacheStorageKey),
+      AsyncStorage.getItem(storiesCacheTimestampStorageKey),
+    ]);
+
+    const stories = rawStories ? (JSON.parse(rawStories) as NewsItem[]) : [];
+    const timestamp = rawTimestamp ? Number(rawTimestamp) : 0;
+
+    return {
+      stories,
+      timestamp: Number.isFinite(timestamp) ? timestamp : 0,
+    };
+  } catch {
+    return {
+      stories: [],
+      timestamp: 0,
+    };
+  }
+}
+
+async function saveStoriesCache(stories: NewsItem[]) {
+  const timestamp = Date.now();
+  await Promise.all([
+    AsyncStorage.setItem(storiesCacheStorageKey, JSON.stringify(stories)),
+    AsyncStorage.setItem(storiesCacheTimestampStorageKey, String(timestamp)),
+  ]);
+  return timestamp;
+}
+
+async function loadDiagnosticsCache() {
+  try {
+    const rawValue = await AsyncStorage.getItem(diagnosticsStorageKey);
+    return rawValue ? (JSON.parse(rawValue) as DiagnosticsMap) : createEmptyDiagnostics();
+  } catch {
+    return createEmptyDiagnostics();
+  }
+}
+
+async function saveDiagnosticsCache(diagnostics: DiagnosticsMap) {
+  await AsyncStorage.setItem(diagnosticsStorageKey, JSON.stringify(diagnostics));
 }
 
 function isReadableIntro(text: string) {
@@ -296,15 +715,51 @@ function isLikelyClickbait(title: string) {
 
 function scoreStory(item: NewsItem) {
   const combinedText = `${item.title} ${item.description} ${item.source}`.toLowerCase();
-  const positiveScore = countKeywordHits(combinedText, positiveSignals);
+  const baseConstructiveHits = countKeywordHits(combinedText, positiveSignals);
+  const categoryConstructiveHits = countKeywordHits(
+    combinedText,
+    categoryConstructiveSignals[item.category] ?? [],
+  );
+  const humanBenefitHits = countKeywordHits(combinedText, humanBenefitSignals);
+  const softCautionHits = countKeywordHits(combinedText, softCautionSignals);
+  const vagueNeutralHits = countKeywordHits(combinedText, vagueNeutralSignals);
+  const sourceName = normalizeSourceName(item.source).toLowerCase();
+  const trustedSourceBonus = trustedSourceBonusNames.some((name) => sourceName.includes(name))
+    ? 1
+    : 0;
+
+  let score = 0;
+  score += Math.min(baseConstructiveHits, 3) * 2;
+  score += Math.min(categoryConstructiveHits, 2) * 2;
+  score += Math.min(humanBenefitHits, 2) * 2;
+  score += trustedSourceBonus;
+  score -= Math.min(softCautionHits, 2) * 2;
+
+  if (baseConstructiveHits + categoryConstructiveHits === 0 && vagueNeutralHits > 0) {
+    score -= 2;
+  }
+
+  const hasConstructiveSignal = baseConstructiveHits + categoryConstructiveHits + humanBenefitHits > 0;
+  if (!hasConstructiveSignal) {
+    return { accepted: false, score: 0, reason: 'too_neutral', softCautionHits };
+  }
+
+  if (score < minimumPositiveScore + 1) {
+    return { accepted: false, score, reason: 'low_impact', softCautionHits };
+  }
+
+  return {
+    accepted: true,
+    score: Math.min(maxScore, Math.max(1, score)),
+    reason: 'constructive',
+    softCautionHits,
+  };
+}
+
+function passesHardSafety(item: NewsItem) {
+  const combinedText = `${item.title} ${item.description} ${item.source}`.toLowerCase();
   const negativeScore = countKeywordHits(combinedText, negativeSignals);
   const clickbait = isLikelyClickbait(item.title);
-
-  let score = positiveScore * 2 - negativeScore * 3;
-
-  if (hasCredibleSource(item.source)) {
-    score += 1;
-  }
 
   if (!hasCredibleSource(item.source)) {
     return { accepted: false, score: -3, reason: 'source_not_credible' };
@@ -315,18 +770,26 @@ function scoreStory(item: NewsItem) {
   }
 
   if (negativeScore >= 1) {
-    return { accepted: false, score, reason: 'negative' };
+    return { accepted: false, score: -3, reason: 'negative' };
   }
 
-  if (positiveScore < minimumPositiveScore) {
-    return { accepted: false, score, reason: 'not_positive_enough' };
+  return { accepted: true, score: 0, reason: 'safe' };
+}
+
+function matchesCategory(item: NewsItem, category: NewsCategory) {
+  if (category === 'All') {
+    return true;
   }
 
-  if (score < minimumPositiveScore) {
-    return { accepted: false, score, reason: 'low_score' };
+  const signals = categorySignals[category];
+  const haystack = `${item.title} ${item.description} ${item.source}`.toLowerCase();
+  const hitCount = countKeywordHits(haystack, signals);
+
+  if (category === 'World') {
+    return hitCount >= 1;
   }
 
-  return { accepted: true, score: Math.min(maxScore, Math.max(1, score)), reason: 'positive' };
+  return hitCount >= 1 || signals.some((signal) => item.title.toLowerCase().includes(signal));
 }
 
 function decodeHtml(text: string) {
@@ -407,7 +870,7 @@ function formatRelativeTime(dateString?: string) {
   return `${diffDays}d ago`;
 }
 
-function isCurrentWeek(dateString?: string) {
+function isWithinLast30Days(dateString?: string) {
   if (!dateString) {
     return false;
   }
@@ -418,14 +881,9 @@ function isCurrentWeek(dateString?: string) {
   }
 
   const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dayOfWeek = startOfToday.getDay();
-  const daysSinceMonday = (dayOfWeek + 6) % 7;
-  const startOfWeek = new Date(startOfToday);
-  startOfWeek.setDate(startOfToday.getDate() - daysSinceMonday);
-  startOfWeek.setHours(0, 0, 0, 0);
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  return publishedDate >= startOfWeek && publishedDate <= now;
+  return publishedDate >= thirtyDaysAgo && publishedDate <= now;
 }
 
 function deriveSource(item: Record<string, unknown>) {
@@ -534,6 +992,145 @@ function sanitizeStories(stories: NewsItem[]) {
   return stories.filter((story) => hasCredibleSource(story.source));
 }
 
+function mixAllCategoryStories(stories: NewsItem[]) {
+  const groupedStories = new Map<NewsCategory, NewsItem[]>();
+
+  for (const story of stories) {
+    if (story.category === 'All') {
+      continue;
+    }
+
+    const group = groupedStories.get(story.category) ?? [];
+    group.push(story);
+    groupedStories.set(story.category, group);
+  }
+
+  const categoryOrder = shuffleArray(Array.from(groupedStories.keys()));
+  const mixedStories: NewsItem[] = [];
+  let addedInPass = true;
+
+  while (addedInPass) {
+    addedInPass = false;
+
+    for (const category of categoryOrder) {
+      const group = groupedStories.get(category);
+
+      if (!group || group.length === 0) {
+        continue;
+      }
+
+      const nextStory = group.shift();
+      if (!nextStory) {
+        continue;
+      }
+
+      mixedStories.push(nextStory);
+      addedInPass = true;
+    }
+  }
+
+  return mixedStories;
+}
+
+function getStoriesForCategory(
+  stories: NewsItem[],
+  category: NewsCategory,
+  locationContext?: LocationContext,
+) {
+  if (category === 'All') {
+    return mixAllCategoryStories(
+      mixStoriesByFreshness(stories.filter((story) => story.category !== 'All'), locationContext, targetStoryCount),
+    );
+  }
+
+  return mixStoriesByFreshness(
+    stories.filter((story) => story.category === category),
+    locationContext,
+    targetStoryCount,
+  );
+}
+
+function mixStoriesByFreshness(
+  stories: NewsItem[],
+  locationContext: LocationContext | undefined,
+  targetCount: number,
+) {
+  const decoratedStories = stories.map((story) => ({
+    story,
+    localityScore: computeLocalityScore(story, locationContext),
+  }));
+
+  const strong = shuffleArray(
+    decoratedStories.filter(({ story }) => story.positiveScore >= 8),
+  );
+  const solid = shuffleArray(
+    decoratedStories.filter(({ story }) => story.positiveScore >= 5 && story.positiveScore < 8),
+  );
+  const steady = shuffleArray(
+    decoratedStories.filter(({ story }) => story.positiveScore < 5),
+  );
+
+  const qualityBands = [strong, solid, steady];
+  const orderedStories = qualityBands.flatMap((band) =>
+    band.sort((left, right) => {
+      const leftFresh = isStoryFromToday(left.story.publishedAt) ? 1 : 0;
+      const rightFresh = isStoryFromToday(right.story.publishedAt) ? 1 : 0;
+
+      if (rightFresh !== leftFresh) {
+        return rightFresh - leftFresh;
+      }
+
+      if (right.localityScore !== left.localityScore) {
+        return right.localityScore - left.localityScore;
+      }
+
+      return (
+        new Date(right.story.publishedAt).getTime() - new Date(left.story.publishedAt).getTime()
+      );
+    }),
+  );
+
+  const buckets = {
+    todayLocal: orderedStories.filter(
+      ({ story, localityScore }) => isStoryFromToday(story.publishedAt) && localityScore > 0,
+    ),
+    today: orderedStories.filter(
+      ({ story, localityScore }) => isStoryFromToday(story.publishedAt) && localityScore === 0,
+    ),
+    weekLocal: orderedStories.filter(
+      ({ story, localityScore }) => !isStoryFromToday(story.publishedAt) && localityScore > 0,
+    ),
+    week: orderedStories.filter(
+      ({ story, localityScore }) => !isStoryFromToday(story.publishedAt) && localityScore === 0,
+    ),
+  };
+
+  const selectedStories: NewsItem[] = [];
+  const usedUrls = new Set<string>();
+
+  const appendFromBucket = (bucket: Array<{ story: NewsItem }>) => {
+    for (const entry of bucket) {
+      if (usedUrls.has(entry.story.url)) {
+        continue;
+      }
+
+      usedUrls.add(entry.story.url);
+      selectedStories.push(entry.story);
+
+      if (selectedStories.length >= targetCount) {
+        return;
+      }
+    }
+  };
+
+  appendFromBucket(buckets.todayLocal);
+  appendFromBucket(buckets.today);
+  appendFromBucket(buckets.weekLocal);
+  appendFromBucket(buckets.week);
+
+  return selectedStories.slice(0, targetCount);
+}
+
 async function enrichStoryIntro(story: NewsItem) {
   try {
     const response = await fetch(story.url, {
@@ -587,6 +1184,8 @@ async function fetchFeedUrl(feed: FeedSource, category: NewsCategory) {
   const rawItems = parsed?.rss?.channel?.item;
   const items = Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : [];
 
+  const diagnostics = createEmptyDiagnostics();
+
   const newsItems: NewsItem[] = items
     .map((item: Record<string, unknown>, index: number) => {
       const publishedAt =
@@ -602,14 +1201,14 @@ async function fetchFeedUrl(feed: FeedSource, category: NewsCategory) {
       const fallbackSource = deriveSourceFromUrl(url);
       const trustedSource = hasCredibleSource(source) ? source : fallbackSource;
 
-      return {
+      const story = {
         id:
           typeof item.guid === 'string' && item.guid.trim()
             ? item.guid.trim()
             : `${category}-${index}`,
         title: cleanTitle(typeof item.title === 'string' ? item.title : undefined),
         description: description || `Latest ${category.toLowerCase()} story from ${source}.`,
-        category,
+        category: feed.category ?? category,
         location: inferLocation(description),
         time: formatRelativeTime(publishedAt),
         publishedAt,
@@ -617,64 +1216,141 @@ async function fetchFeedUrl(feed: FeedSource, category: NewsCategory) {
         url,
         positiveScore: 0,
       };
-    })
-    .filter(
-      (item) =>
-        item.title &&
-        item.url &&
-        isCurrentWeek(item.publishedAt) &&
-        hasCredibleSource(item.source),
-    );
+      const storyCategory = story.category;
+      diagnostics[storyCategory].fetched += 1;
+      diagnostics.All.fetched += 1;
 
-  return newsItems;
+      return story;
+    })
+    .filter((item) => {
+      const storyCategory = item.category;
+
+      if (!item.title || !item.url || !isWithinLast30Days(item.publishedAt)) {
+        diagnostics[storyCategory].invalidRejected += 1;
+        diagnostics.All.invalidRejected += 1;
+        return false;
+      }
+
+      diagnostics[storyCategory].validBase += 1;
+      diagnostics.All.validBase += 1;
+
+      if (!hasCredibleSource(item.source)) {
+        diagnostics[storyCategory].sourceRejected += 1;
+        diagnostics.All.sourceRejected += 1;
+        return false;
+      }
+
+      diagnostics[storyCategory].credibleSource += 1;
+      diagnostics.All.credibleSource += 1;
+
+      return true;
+    });
+
+  return { newsItems, diagnostics };
 }
 
-async function fetchFeed(category: NewsCategory, locationContext?: LocationContext) {
-  const positiveStories = new Map<string, NewsItem>();
-  const feedUrls: FeedSource[] = [
-    ...buildCategoryFeedUrls(locationContext)[category],
-    ...fallbackPositiveFeeds,
-  ];
+async function fetchAllStories(
+  locationContext?: LocationContext,
+  visitCount = 0,
+  seenStories: Record<string, number> = {},
+) {
+  const acceptedStories = new Map<string, NewsItem>();
+  const seenUrls = new Set<string>();
+  const diagnostics = createEmptyDiagnostics();
+  const categoryFeeds = buildCategoryFeedUrls(locationContext).All;
+  const feedUrls: FeedSource[] = rotateArray(categoryFeeds, visitCount);
 
   for (const feedUrl of feedUrls) {
-    const newsItems = await fetchFeedUrl(feedUrl, category);
+    let newsItems: NewsItem[] = [];
+    let feedDiagnostics = createEmptyDiagnostics();
+
+    try {
+      const result = await fetchFeedUrl(feedUrl, feedUrl.category ?? 'All');
+      newsItems = result.newsItems;
+      feedDiagnostics = result.diagnostics;
+    } catch {
+      const categoryKey = feedUrl.category ?? 'All';
+      diagnostics[categoryKey].feedErrors += 1;
+      diagnostics.All.feedErrors += 1;
+      continue;
+    }
+
+    for (const category of categories) {
+      diagnostics[category].fetched += feedDiagnostics[category].fetched;
+      diagnostics[category].invalidRejected += feedDiagnostics[category].invalidRejected;
+      diagnostics[category].validBase += feedDiagnostics[category].validBase;
+      diagnostics[category].sourceRejected += feedDiagnostics[category].sourceRejected;
+      diagnostics[category].credibleSource += feedDiagnostics[category].credibleSource;
+    }
 
     for (const item of newsItems) {
-      if (positiveStories.has(item.url)) {
+      const storyCategory = item.category;
+
+      if (seenUrls.has(item.url)) {
+        diagnostics[storyCategory].duplicateRejected += 1;
+        diagnostics.All.duplicateRejected += 1;
+        continue;
+      }
+      seenUrls.add(item.url);
+
+      diagnostics[storyCategory].deduped += 1;
+      diagnostics.All.deduped += 1;
+
+      if (seenStories[item.url]) {
+        diagnostics[storyCategory].seenRejected += 1;
+        diagnostics.All.seenRejected += 1;
         continue;
       }
 
+      diagnostics[storyCategory].unseen += 1;
+      diagnostics.All.unseen += 1;
+
+      if (!matchesCategory(item, storyCategory)) {
+        diagnostics[storyCategory].categoryRejected += 1;
+        diagnostics.All.categoryRejected += 1;
+        continue;
+      }
+
+      diagnostics[storyCategory].categoryMatched += 1;
+      diagnostics.All.categoryMatched += 1;
+
+      const safetyResult = passesHardSafety(item);
+      if (!safetyResult.accepted) {
+        diagnostics[storyCategory].positivityRejected += 1;
+        diagnostics.All.positivityRejected += 1;
+        continue;
+      }
       const result = scoreStory(item);
+      diagnostics[storyCategory].cautionPenaltyHits += result.softCautionHits ?? 0;
+      diagnostics.All.cautionPenaltyHits += result.softCautionHits ?? 0;
 
       if (!result.accepted) {
+        diagnostics[storyCategory].constructiveRejected += 1;
+        diagnostics.All.constructiveRejected += 1;
+        diagnostics[storyCategory].positivityRejected += 1;
+        diagnostics.All.positivityRejected += 1;
         continue;
       }
 
-      positiveStories.set(item.url, {
+      acceptedStories.set(item.url, {
         ...item,
         positiveScore: result.score,
       });
-
-      if (positiveStories.size >= targetStoryCount) {
-        break;
-      }
-    }
-
-    if (positiveStories.size >= targetStoryCount) {
-      break;
+      diagnostics[storyCategory].accepted += 1;
+      diagnostics.All.accepted += 1;
     }
   }
 
-  return Array.from(positiveStories.values())
-    .sort((a, b) => {
-      const scoreDiff = b.positiveScore - a.positiveScore;
-      if (scoreDiff !== 0) {
-        return scoreDiff;
-      }
+  const selectedStories = mixStoriesByFreshness(
+    Array.from(acceptedStories.values()),
+    locationContext,
+    targetStoryCount,
+  );
 
-      return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
-    })
-    .slice(0, targetStoryCount);
+  return {
+    stories: selectedStories,
+    diagnostics,
+  };
 }
 
 export default function App() {
@@ -683,13 +1359,15 @@ export default function App() {
   const [userLocation, setUserLocation] = useState('Finding your local edition...');
   const [locationContext, setLocationContext] = useState<LocationContext | undefined>(undefined);
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
-  const [stories, setStories] = useState<NewsItem[]>([]);
+  const [allStories, setAllStories] = useState<NewsItem[]>([]);
   const [visibleStoryCount, setVisibleStoryCount] = useState(initialVisibleStoryCount);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sourceReaderLoading, setSourceReaderLoading] = useState(false);
   const [lastUpdatedLabel, setLastUpdatedLabel] = useState('Not updated yet');
+  const [seenStories, setSeenStories] = useState<Record<string, number>>({});
+  const [, setDiagnostics] = useState<DiagnosticsMap>(createEmptyDiagnostics());
 
   const detectLocation = useCallback(async () => {
     try {
@@ -736,7 +1414,6 @@ export default function App() {
 
   const loadStories = useCallback(
     async (
-      category: NewsCategory,
       mode: 'load' | 'refresh' = 'load',
       nextLocationContext?: LocationContext,
     ) => {
@@ -752,14 +1429,38 @@ export default function App() {
       try {
         const loadId = Date.now();
         latestLoadId.current = loadId;
-        const latestStories = await fetchFeed(category, nextLocationContext);
+        const [nextSeenStories, visitCount] = await Promise.all([
+          loadSeenStories(),
+          bumpVisitCount(),
+        ]);
+        setSeenStories(nextSeenStories);
+        const [cached, cachedDiagnostics] = await Promise.all([
+          loadStoriesCache(),
+          loadDiagnosticsCache(),
+        ]);
+        const shouldReuseCache =
+          mode === 'load' &&
+          cached.stories.length > 0 &&
+          Date.now() - cached.timestamp < storiesCacheTtlMs;
+
+        const fetchedResult = shouldReuseCache
+          ? { stories: cached.stories, diagnostics: cachedDiagnostics }
+          : await fetchAllStories(nextLocationContext, visitCount, nextSeenStories);
+        const latestStories = fetchedResult.stories;
         const sanitizedStories = sanitizeStories(latestStories);
+        setDiagnostics(fetchedResult.diagnostics);
 
         if (sanitizedStories.length === 0) {
-          setError('No strongly positive stories from this week were available right now. Try refresh in a bit.');
+          setError('No strongly positive stories from the last 30 days were available right now. Try refresh in a bit.');
         }
-        setStories(sanitizedStories);
-        setLastUpdatedLabel(new Date().toLocaleTimeString([], {
+        setAllStories(sanitizedStories);
+        const updatedTimestamp = shouldReuseCache
+          ? cached.timestamp
+          : await saveStoriesCache(sanitizedStories);
+        if (!shouldReuseCache) {
+          void saveDiagnosticsCache(fetchedResult.diagnostics);
+        }
+        setLastUpdatedLabel(new Date(updatedTimestamp).toLocaleTimeString([], {
           hour: 'numeric',
           minute: '2-digit',
         }));
@@ -769,7 +1470,9 @@ export default function App() {
             return;
           }
 
-          setStories(sanitizeStories(enrichedStories));
+          const finalStories = sanitizeStories(enrichedStories);
+          setAllStories(finalStories);
+          void saveStoriesCache(finalStories);
         });
       } catch (loadError) {
         setError('Could not load live news right now. Pull to refresh and try again.');
@@ -798,9 +1501,9 @@ export default function App() {
           }
         }
 
-        await loadStories(activeCategory, 'load', nextContext);
+        await loadStories('load', nextContext);
       } catch (error) {
-        await loadStories(activeCategory, 'load', locationContext);
+        await loadStories('load', locationContext);
       }
     };
 
@@ -809,11 +1512,19 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [activeCategory, detectLocation, loadStories, locationContext]);
+  }, [detectLocation, loadStories, locationContext]);
 
-  const visibleStories = sanitizeStories(stories).slice(0, visibleStoryCount);
-  const canLoadMore = visibleStoryCount < sanitizeStories(stories).length;
+  useEffect(() => {
+    setVisibleStoryCount(initialVisibleStoryCount);
+  }, [activeCategory]);
 
+  const availableStories = getStoriesForCategory(
+    sanitizeStories(allStories).filter((story) => !seenStories[story.url]),
+    activeCategory,
+    locationContext,
+  );
+  const visibleStories = availableStories.slice(0, visibleStoryCount);
+  const canLoadMore = visibleStoryCount < availableStories.length;
   return (
     <LinearGradient colors={['#eef7ff', '#f8f2eb', '#fffdf8']} style={styles.screen}>
       <SafeAreaView style={styles.safeArea}>
@@ -827,7 +1538,7 @@ export default function App() {
               refreshing={refreshing}
               onRefresh={async () => {
                 const nextContext = await detectLocation();
-                await loadStories(activeCategory, 'refresh', nextContext);
+                await loadStories('refresh', nextContext);
               }}
             />
           }
@@ -894,8 +1605,10 @@ export default function App() {
                 <Pressable
                   key={story.url}
                   style={styles.storyCard}
-                  onPress={() => {
+                  onPress={async () => {
                     setSourceReaderLoading(true);
+                    const nextSeenStories = await markStorySeen(story.url);
+                    setSeenStories(nextSeenStories);
                     setSelectedNews(story);
                   }}
                 >
@@ -928,18 +1641,30 @@ export default function App() {
                   style={styles.loadMoreButton}
                   onPress={() =>
                     setVisibleStoryCount((current) =>
-                      Math.min(current + loadMoreBatchSize, stories.length),
+                      Math.min(current + loadMoreBatchSize, availableStories.length),
                     )
                   }
                 >
                   <Text style={styles.loadMoreButtonText}>
-                    Load more ({stories.length - visibleStoryCount} left)
+                    Load more ({availableStories.length - visibleStoryCount} left)
                   </Text>
                 </Pressable>
               ) : null}
             </View>
           ) : null}
         </ScrollView>
+
+        {refreshing && !loading ? (
+          <View style={styles.refreshOverlay}>
+            <View style={styles.refreshOverlayCard}>
+              <ActivityIndicator size="large" color="#172235" />
+              <Text style={styles.refreshOverlayTitle}>Refreshing good news</Text>
+              <Text style={styles.refreshOverlayText}>
+                Pulling all source pools again for the latest positive stories.
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         <Modal
           visible={selectedNews !== null}
@@ -1094,6 +1819,43 @@ const styles = StyleSheet.create({
     color: '#526177',
     fontSize: 15,
     fontWeight: '600',
+  },
+  refreshOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 253, 248, 0.82)',
+    paddingHorizontal: 24,
+    zIndex: 5,
+  },
+  refreshOverlayCard: {
+    width: '100%',
+    maxWidth: 360,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    borderRadius: 28,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    shadowColor: '#20304a',
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
+  },
+  refreshOverlayTitle: {
+    marginTop: 16,
+    color: '#152033',
+    fontSize: 20,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  refreshOverlayText: {
+    marginTop: 10,
+    color: '#526177',
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   errorCard: {
     backgroundColor: '#eef8f5',
