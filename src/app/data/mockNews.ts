@@ -34,16 +34,39 @@ export interface FeedSource {
   url: string;
   sourceName?: string;
   category?: NewsCategory;
+  tier?: 'priority' | 'secondary' | 'fallback';
 }
 
 const REGION = 'IN:en';
 const LANGUAGE = 'en-IN';
 const COUNTRY = 'IN';
 
-const buildSearchFeed = (query: string, category?: NewsCategory): FeedSource => ({
+const buildSearchFeed = (
+  query: string,
+  category?: NewsCategory,
+  tier: FeedSource['tier'] = 'secondary',
+): FeedSource => ({
   url: `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=${LANGUAGE}&gl=${COUNTRY}&ceid=${REGION}`,
   category,
+  tier,
 });
+
+const buildTieredSearchFeeds = (
+  queries: string[],
+  category: NewsCategory,
+  priorityCount = 6,
+  secondaryCount = 12,
+) =>
+  queries.map((query, index) => {
+    const tier: FeedSource['tier'] =
+      index < priorityCount ? 'priority' : index < priorityCount + secondaryCount ? 'secondary' : 'fallback';
+    return buildSearchFeed(query, category, tier);
+  });
+
+const withTier = (
+  feeds: Array<Omit<FeedSource, 'tier'>>,
+  tier: FeedSource['tier'],
+): FeedSource[] => feeds.map((feed) => ({ ...feed, tier }));
 
 const uniqueFeeds = (feeds: FeedSource[]) => {
   const byUrl = new Map<string, FeedSource>();
@@ -228,60 +251,76 @@ export function buildCategoryFeedUrls(location?: LocationContext): Record<NewsCa
   ];
 
   const worldFeeds: FeedSource[] = [
-    ...worldQueries.map((query) => buildSearchFeed(query, 'World')),
-    { url: 'https://feeds.reuters.com/Reuters/worldNews', sourceName: 'Reuters', category: 'World' },
-    { url: 'http://feeds.bbci.co.uk/news/world/rss.xml', sourceName: 'BBC', category: 'World' },
-    { url: 'https://feeds.npr.org/1004/rss.xml', sourceName: 'NPR', category: 'World' },
-    { url: 'https://news.un.org/feed/subscribe/en/news/all/rss.xml', sourceName: 'UN News', category: 'World' },
+    ...buildTieredSearchFeeds(worldQueries, 'World'),
+    ...withTier([
+      { url: 'https://feeds.reuters.com/Reuters/worldNews', sourceName: 'Reuters', category: 'World' },
+      { url: 'http://feeds.bbci.co.uk/news/world/rss.xml', sourceName: 'BBC', category: 'World' },
+      { url: 'https://feeds.npr.org/1004/rss.xml', sourceName: 'NPR', category: 'World' },
+      { url: 'https://news.un.org/feed/subscribe/en/news/all/rss.xml', sourceName: 'UN News', category: 'World' },
+    ], 'priority'),
   ];
 
   const businessFeeds: FeedSource[] = [
-    ...businessQueries.map((query) => buildSearchFeed(query, 'Business')),
-    { url: 'https://feeds.reuters.com/reuters/businessNews', sourceName: 'Reuters', category: 'Business' },
-    { url: 'https://www.cnbc.com/id/10001147/device/rss/rss.html', sourceName: 'CNBC', category: 'Business' },
-    { url: 'https://www.entrepreneur.com/latest.rss', sourceName: 'Entrepreneur', category: 'Business' },
-    { url: 'http://feeds.bbci.co.uk/news/business/rss.xml', sourceName: 'BBC', category: 'Business' },
-    { url: 'https://feeds.npr.org/1006/rss.xml', sourceName: 'NPR', category: 'Business' },
+    ...buildTieredSearchFeeds(businessQueries, 'Business'),
+    ...withTier([
+      { url: 'https://feeds.reuters.com/reuters/businessNews', sourceName: 'Reuters', category: 'Business' },
+      { url: 'https://www.cnbc.com/id/10001147/device/rss/rss.html', sourceName: 'CNBC', category: 'Business' },
+      { url: 'https://www.entrepreneur.com/latest.rss', sourceName: 'Entrepreneur', category: 'Business' },
+      { url: 'http://feeds.bbci.co.uk/news/business/rss.xml', sourceName: 'BBC', category: 'Business' },
+      { url: 'https://feeds.npr.org/1006/rss.xml', sourceName: 'NPR', category: 'Business' },
+    ], 'priority'),
   ];
 
   const technologyFeeds: FeedSource[] = [
-    buildSearchFeed(`${primaryPlace} technology`, 'Technology'),
-    buildSearchFeed(`${secondaryPlace} startup technology`, 'Technology'),
-    buildSearchFeed(`${primaryPlace} AI OR innovation OR research`, 'Technology'),
-    buildSearchFeed('positive technology news', 'Technology'),
-    buildSearchFeed('AI breakthrough OR software helps OR tech innovation', 'Technology'),
-    buildSearchFeed('tech innovation improves lives', 'Technology'),
-    { url: 'https://techcrunch.com/feed/', sourceName: 'TechCrunch', category: 'Technology' },
-    { url: 'https://www.wired.com/feed/rss', sourceName: 'WIRED', category: 'Technology' },
-    { url: 'https://www.technologyreview.com/feed/', sourceName: 'MIT Technology Review', category: 'Technology' },
-    { url: 'https://feeds.arstechnica.com/arstechnica/index', sourceName: 'Ars Technica', category: 'Technology' },
+    ...buildTieredSearchFeeds([
+      `${primaryPlace} technology`,
+      `${secondaryPlace} startup technology`,
+      `${primaryPlace} AI OR innovation OR research`,
+      'positive technology news',
+      'AI breakthrough OR software helps OR tech innovation',
+      'tech innovation improves lives',
+    ], 'Technology', 4, 2),
+    ...withTier([
+      { url: 'https://techcrunch.com/feed/', sourceName: 'TechCrunch', category: 'Technology' },
+      { url: 'https://www.wired.com/feed/rss', sourceName: 'WIRED', category: 'Technology' },
+      { url: 'https://www.technologyreview.com/feed/', sourceName: 'MIT Technology Review', category: 'Technology' },
+      { url: 'https://feeds.arstechnica.com/arstechnica/index', sourceName: 'Ars Technica', category: 'Technology' },
+    ], 'priority'),
   ];
 
   const scienceFeeds: FeedSource[] = [
-    buildSearchFeed(`${primaryPlace} science`, 'Science'),
-    buildSearchFeed(`${secondaryPlace} research OR medical discovery`, 'Science'),
-    buildSearchFeed(`${primaryPlace} university OR health research`, 'Science'),
-    buildSearchFeed('positive science news', 'Science'),
-    buildSearchFeed('science breakthrough OR research success OR discovery', 'Science'),
-    buildSearchFeed('climate solution research success', 'Science'),
-    { url: 'https://www.sciencedaily.com/rss/top/science.xml', sourceName: 'ScienceDaily', category: 'Science' },
-    { url: 'https://www.nature.com/nature.rss', sourceName: 'Nature', category: 'Science' },
-    { url: 'https://phys.org/rss-feed/', sourceName: 'Phys.org', category: 'Science' },
-    { url: 'https://www.newscientist.com/feed/home/', sourceName: 'New Scientist', category: 'Science' },
+    ...buildTieredSearchFeeds([
+      `${primaryPlace} science`,
+      `${secondaryPlace} research OR medical discovery`,
+      `${primaryPlace} university OR health research`,
+      'positive science news',
+      'science breakthrough OR research success OR discovery',
+      'climate solution research success',
+    ], 'Science', 4, 2),
+    ...withTier([
+      { url: 'https://www.sciencedaily.com/rss/top/science.xml', sourceName: 'ScienceDaily', category: 'Science' },
+      { url: 'https://www.nature.com/nature.rss', sourceName: 'Nature', category: 'Science' },
+      { url: 'https://phys.org/rss-feed/', sourceName: 'Phys.org', category: 'Science' },
+      { url: 'https://www.newscientist.com/feed/home/', sourceName: 'New Scientist', category: 'Science' },
+    ], 'priority'),
   ];
 
   const sportsFeeds: FeedSource[] = [
-    ...sportsQueries.map((query) => buildSearchFeed(query, 'Sports')),
-    { url: 'https://www.espn.com/espn/rss/news', sourceName: 'ESPN', category: 'Sports' },
-    { url: 'http://feeds.bbci.co.uk/sport/rss.xml?edition=uk', sourceName: 'BBC Sport', category: 'Sports' },
+    ...buildTieredSearchFeeds(sportsQueries, 'Sports'),
+    ...withTier([
+      { url: 'https://www.espn.com/espn/rss/news', sourceName: 'ESPN', category: 'Sports' },
+      { url: 'http://feeds.bbci.co.uk/sport/rss.xml?edition=uk', sourceName: 'BBC Sport', category: 'Sports' },
+    ], 'priority'),
   ];
 
   const healthFeeds: FeedSource[] = [
-    ...healthQueries.map((query) => buildSearchFeed(query, 'Health')),
-    { url: 'https://www.sciencedaily.com/rss/top/health.xml', sourceName: 'ScienceDaily', category: 'Health' },
-    { url: 'https://www.sciencedaily.com/rss/top/technology.xml', sourceName: 'ScienceDaily', category: 'Health' },
-    { url: 'https://www.afro.who.int/rss-feeds', sourceName: 'WHO AFRO', category: 'Health' },
-    { url: 'https://www.emro.who.int/rss-feeds_3036/rss-feeds.html', sourceName: 'WHO EMRO', category: 'Health' },
+    ...buildTieredSearchFeeds(healthQueries, 'Health'),
+    ...withTier([
+      { url: 'https://www.sciencedaily.com/rss/top/health.xml', sourceName: 'ScienceDaily', category: 'Health' },
+      { url: 'https://www.sciencedaily.com/rss/top/technology.xml', sourceName: 'ScienceDaily', category: 'Health' },
+      { url: 'https://www.afro.who.int/rss-feeds', sourceName: 'WHO AFRO', category: 'Health' },
+      { url: 'https://www.emro.who.int/rss-feeds_3036/rss-feeds.html', sourceName: 'WHO EMRO', category: 'Health' },
+    ], 'priority'),
   ];
 
   const allFeeds = uniqueFeeds([

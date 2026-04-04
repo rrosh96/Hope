@@ -36,6 +36,18 @@ const htmlEntityMap: Record<string, string> = {
   '&lt;': '<',
   '&gt;': '>',
   '&quot;': '"',
+  '&apos;': "'",
+  '&nbsp;': ' ',
+  '&ndash;': '-',
+  '&mdash;': '-',
+  '&lsquo;': "'",
+  '&rsquo;': "'",
+  '&ldquo;': '"',
+  '&rdquo;': '"',
+  '&hellip;': '...',
+  '&copy;': '©',
+  '&reg;': '®',
+  '&trade;': '™',
   '&#39;': "'",
 };
 
@@ -229,6 +241,20 @@ const clickbaitSignals = [
   'epic',
   'unbelievable',
   'jaw-dropping',
+];
+
+const introBoilerplatePatterns = [
+  /comprehensive,\s*up-to-date news coverage/i,
+  /aggregated from sources all over the world by google news/i,
+  /read full article/i,
+  /read full story/i,
+  /full coverage/i,
+  /see full coverage/i,
+  /more for you/i,
+  /more on this story/i,
+  /continue reading/i,
+  /follow us/i,
+  /google news/i,
 ];
 
 const vagueSourceNames = new Set([
@@ -437,6 +463,8 @@ const categoryConstructiveSignals: Record<NewsCategory, string[]> = {
 
 const minimumPositiveScore = 2;
 const targetStoryCount = 150;
+const categoryTargetStoryCount = 20;
+const feedParallelism = 6;
 const initialVisibleStoryCount = 5;
 const loadMoreBatchSize = 5;
 const maxIntroWords = 50;
@@ -446,8 +474,48 @@ const visitCountStorageKey = 'hope:visit-count';
 const storiesCacheStorageKey = 'hope:stories-cache';
 const storiesCacheTimestampStorageKey = 'hope:stories-cache-timestamp';
 const diagnosticsStorageKey = 'hope:stories-diagnostics';
+const metricsHistoryStorageKey = 'hope:metrics-history';
 const seenStoryCooldownMs = 3 * 24 * 60 * 60 * 1000;
 const storiesCacheTtlMs = 5 * 60 * 1000;
+const metricsHistoryLimit = 20;
+
+interface CategoryFetchMetrics {
+  category: Exclude<NewsCategory, 'All'>;
+  durationMs: number;
+  acceptedCount: number;
+  attemptedFeeds: number;
+  successfulFeeds: number;
+  failedFeeds: number;
+  scannedTiers: Array<NonNullable<FeedSource['tier']>>;
+}
+
+interface RefreshMetrics {
+  timestamp: number;
+  mode: 'load' | 'refresh';
+  cacheUsed: boolean;
+  durationMs: number;
+  locationLabel: string;
+  totalAcceptedStories: number;
+  allVisiblePoolCount: number;
+  funnel: {
+    fetched: number;
+    validBase: number;
+    credibleSource: number;
+    deduped: number;
+    unseen: number;
+    categoryMatched: number;
+    accepted: number;
+    invalidRejected: number;
+    sourceRejected: number;
+    duplicateRejected: number;
+    seenRejected: number;
+    categoryRejected: number;
+    constructiveRejected: number;
+    positivityRejected: number;
+    feedErrors: number;
+  };
+  categoryMetrics: CategoryFetchMetrics[];
+}
 
 interface CategoryDiagnostics {
   fetched: number;
@@ -537,6 +605,37 @@ function shuffleArray<T>(items: T[]) {
   }
 
   return next;
+}
+
+function chunkArray<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
+}
+
+function mergeDiagnostics(target: DiagnosticsMap, source: DiagnosticsMap) {
+  for (const category of categories) {
+    target[category].fetched += source[category].fetched;
+    target[category].feedErrors += source[category].feedErrors;
+    target[category].invalidRejected += source[category].invalidRejected;
+    target[category].validBase += source[category].validBase;
+    target[category].sourceRejected += source[category].sourceRejected;
+    target[category].credibleSource += source[category].credibleSource;
+    target[category].duplicateRejected += source[category].duplicateRejected;
+    target[category].deduped += source[category].deduped;
+    target[category].seenRejected += source[category].seenRejected;
+    target[category].unseen += source[category].unseen;
+    target[category].categoryRejected += source[category].categoryRejected;
+    target[category].categoryMatched += source[category].categoryMatched;
+    target[category].positivityRejected += source[category].positivityRejected;
+    target[category].accepted += source[category].accepted;
+    target[category].constructiveRejected += source[category].constructiveRejected;
+    target[category].cautionPenaltyHits += source[category].cautionPenaltyHits;
+  }
 }
 
 function isStoryFromToday(dateString: string) {
@@ -657,6 +756,34 @@ async function saveDiagnosticsCache(diagnostics: DiagnosticsMap) {
   await AsyncStorage.setItem(diagnosticsStorageKey, JSON.stringify(diagnostics));
 }
 
+async function appendRefreshMetrics(metrics: RefreshMetrics) {
+  try {
+    const rawValue = await AsyncStorage.getItem(metricsHistoryStorageKey);
+    const history = rawValue ? (JSON.parse(rawValue) as RefreshMetrics[]) : [];
+    const nextHistory = [metrics, ...history].slice(0, metricsHistoryLimit);
+    await AsyncStorage.setItem(metricsHistoryStorageKey, JSON.stringify(nextHistory));
+  } catch {
+    // Ignore metrics write failures so the feed never breaks for telemetry.
+  }
+}
+
+function logRefreshMetrics(metrics: RefreshMetrics) {
+  const categorySummary = metrics.categoryMetrics
+    .map(
+      (entry) =>
+        `${entry.category}:${entry.acceptedCount} in ${entry.durationMs}ms (${entry.successfulFeeds}/${entry.attemptedFeeds} feeds)`,
+    )
+    .join(' | ');
+
+  console.info(
+    `[Hope Metrics] mode=${metrics.mode} cacheUsed=${metrics.cacheUsed} durationMs=${metrics.durationMs} totalAccepted=${metrics.totalAcceptedStories} visiblePool=${metrics.allVisiblePoolCount}`,
+  );
+  console.info(
+    `[Hope Funnel] fetched=${metrics.funnel.fetched} valid=${metrics.funnel.validBase} source=${metrics.funnel.credibleSource} deduped=${metrics.funnel.deduped} unseen=${metrics.funnel.unseen} matched=${metrics.funnel.categoryMatched} accepted=${metrics.funnel.accepted} rejected=${metrics.funnel.positivityRejected}`,
+  );
+  console.info(`[Hope Categories] ${categorySummary}`);
+}
+
 function isReadableIntro(text: string) {
   const normalized = stripHtml(text);
 
@@ -681,6 +808,10 @@ function isReadableIntro(text: string) {
   }
 
   if (/\.cls-\d|fill:|opacity:|isolate:|url\(#|google-news follow us/i.test(normalized)) {
+    return false;
+  }
+
+  if (introBoilerplatePatterns.some((pattern) => pattern.test(normalized))) {
     return false;
   }
 
@@ -793,7 +924,34 @@ function matchesCategory(item: NewsItem, category: NewsCategory) {
 }
 
 function decodeHtml(text: string) {
-  return text.replace(/&(amp|lt|gt|quot|#39);/g, (match) => htmlEntityMap[match] ?? match);
+  return text
+    .replace(/&#(\d+);/g, (match, decimalCode) => {
+      const codePoint = Number.parseInt(decimalCode, 10);
+
+      if (!Number.isFinite(codePoint)) {
+        return match;
+      }
+
+      try {
+        return String.fromCodePoint(codePoint);
+      } catch {
+        return match;
+      }
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (match, hexCode) => {
+      const codePoint = Number.parseInt(hexCode, 16);
+
+      if (!Number.isFinite(codePoint)) {
+        return match;
+      }
+
+      try {
+        return String.fromCodePoint(codePoint);
+      } catch {
+        return match;
+      }
+    })
+    .replace(/&[a-z]+;/gi, (match) => htmlEntityMap[match.toLowerCase()] ?? match);
 }
 
 function stripHtml(text?: string) {
@@ -1254,95 +1412,160 @@ async function fetchAllStories(
   visitCount = 0,
   seenStories: Record<string, number> = {},
 ) {
-  const acceptedStories = new Map<string, NewsItem>();
-  const seenUrls = new Set<string>();
+  const fetchStartedAt = Date.now();
   const diagnostics = createEmptyDiagnostics();
-  const categoryFeeds = buildCategoryFeedUrls(locationContext).All;
-  const feedUrls: FeedSource[] = rotateArray(categoryFeeds, visitCount);
+  const allAcceptedStories = new Map<string, NewsItem>();
+  const categoryFeedMap = buildCategoryFeedUrls(locationContext);
+  const categoriesToFetch = categories.filter(
+    (category): category is Exclude<NewsCategory, 'All'> => category !== 'All',
+  );
 
-  for (const feedUrl of feedUrls) {
-    let newsItems: NewsItem[] = [];
-    let feedDiagnostics = createEmptyDiagnostics();
+  const categoryResults = await Promise.all(
+    categoriesToFetch.map(async (category, categoryIndex) => {
+      const categoryStartedAt = Date.now();
+      const categoryDiagnostics = createEmptyDiagnostics();
+      const acceptedStories = new Map<string, NewsItem>();
+      const seenUrls = new Set<string>();
+      const feeds = rotateArray(categoryFeedMap[category], visitCount + categoryIndex);
+      const tiers: Array<NonNullable<FeedSource['tier']>> = ['priority', 'secondary', 'fallback'];
+      const scannedTiers = new Set<NonNullable<FeedSource['tier']>>();
+      let attemptedFeeds = 0;
+      let successfulFeeds = 0;
+      let failedFeeds = 0;
 
-    try {
-      const result = await fetchFeedUrl(feedUrl, feedUrl.category ?? 'All');
-      newsItems = result.newsItems;
-      feedDiagnostics = result.diagnostics;
-    } catch {
-      const categoryKey = feedUrl.category ?? 'All';
-      diagnostics[categoryKey].feedErrors += 1;
-      diagnostics.All.feedErrors += 1;
-      continue;
-    }
+      for (const tier of tiers) {
+        if (acceptedStories.size >= categoryTargetStoryCount) {
+          break;
+        }
 
-    for (const category of categories) {
-      diagnostics[category].fetched += feedDiagnostics[category].fetched;
-      diagnostics[category].invalidRejected += feedDiagnostics[category].invalidRejected;
-      diagnostics[category].validBase += feedDiagnostics[category].validBase;
-      diagnostics[category].sourceRejected += feedDiagnostics[category].sourceRejected;
-      diagnostics[category].credibleSource += feedDiagnostics[category].credibleSource;
-    }
+        const tierFeeds = feeds.filter((feed) => (feed.tier ?? 'secondary') === tier);
+        if (tierFeeds.length > 0) {
+          scannedTiers.add(tier);
+        }
 
-    for (const item of newsItems) {
-      const storyCategory = item.category;
+        for (const feedChunk of chunkArray(tierFeeds, feedParallelism)) {
+          if (acceptedStories.size >= categoryTargetStoryCount) {
+            break;
+          }
 
-      if (seenUrls.has(item.url)) {
-        diagnostics[storyCategory].duplicateRejected += 1;
-        diagnostics.All.duplicateRejected += 1;
-        continue;
+          attemptedFeeds += feedChunk.length;
+
+          const settledResults = await Promise.allSettled(
+            feedChunk.map((feed) => fetchFeedUrl(feed, category)),
+          );
+
+          for (let index = 0; index < settledResults.length; index += 1) {
+            const settledResult = settledResults[index];
+
+            if (settledResult.status === 'rejected') {
+              failedFeeds += 1;
+              categoryDiagnostics[category].feedErrors += 1;
+              categoryDiagnostics.All.feedErrors += 1;
+              continue;
+            }
+
+            successfulFeeds += 1;
+            const { newsItems, diagnostics: feedDiagnostics } = settledResult.value;
+            mergeDiagnostics(categoryDiagnostics, feedDiagnostics);
+
+            for (const item of newsItems) {
+              if (acceptedStories.size >= categoryTargetStoryCount) {
+                break;
+              }
+
+              const storyCategory = item.category;
+
+              if (seenUrls.has(item.url)) {
+                categoryDiagnostics[storyCategory].duplicateRejected += 1;
+                categoryDiagnostics.All.duplicateRejected += 1;
+                continue;
+              }
+              seenUrls.add(item.url);
+
+              categoryDiagnostics[storyCategory].deduped += 1;
+              categoryDiagnostics.All.deduped += 1;
+
+              if (seenStories[item.url]) {
+                categoryDiagnostics[storyCategory].seenRejected += 1;
+                categoryDiagnostics.All.seenRejected += 1;
+                continue;
+              }
+
+              categoryDiagnostics[storyCategory].unseen += 1;
+              categoryDiagnostics.All.unseen += 1;
+
+              if (!matchesCategory(item, storyCategory)) {
+                categoryDiagnostics[storyCategory].categoryRejected += 1;
+                categoryDiagnostics.All.categoryRejected += 1;
+                continue;
+              }
+
+              categoryDiagnostics[storyCategory].categoryMatched += 1;
+              categoryDiagnostics.All.categoryMatched += 1;
+
+              const safetyResult = passesHardSafety(item);
+              if (!safetyResult.accepted) {
+                categoryDiagnostics[storyCategory].positivityRejected += 1;
+                categoryDiagnostics.All.positivityRejected += 1;
+                continue;
+              }
+
+              const result = scoreStory(item);
+              categoryDiagnostics[storyCategory].cautionPenaltyHits += result.softCautionHits ?? 0;
+              categoryDiagnostics.All.cautionPenaltyHits += result.softCautionHits ?? 0;
+
+              if (!result.accepted) {
+                categoryDiagnostics[storyCategory].constructiveRejected += 1;
+                categoryDiagnostics.All.constructiveRejected += 1;
+                categoryDiagnostics[storyCategory].positivityRejected += 1;
+                categoryDiagnostics.All.positivityRejected += 1;
+                continue;
+              }
+
+              acceptedStories.set(item.url, {
+                ...item,
+                positiveScore: result.score,
+              });
+              categoryDiagnostics[storyCategory].accepted += 1;
+              categoryDiagnostics.All.accepted += 1;
+            }
+          }
+        }
       }
-      seenUrls.add(item.url);
 
-      diagnostics[storyCategory].deduped += 1;
-      diagnostics.All.deduped += 1;
+      return {
+        category,
+        stories: mixStoriesByFreshness(
+          Array.from(acceptedStories.values()),
+          locationContext,
+          categoryTargetStoryCount,
+        ),
+        diagnostics: categoryDiagnostics,
+        metrics: {
+          category,
+          durationMs: Date.now() - categoryStartedAt,
+          acceptedCount: acceptedStories.size,
+          attemptedFeeds,
+          successfulFeeds,
+          failedFeeds,
+          scannedTiers: Array.from(scannedTiers),
+        } satisfies CategoryFetchMetrics,
+      };
+    }),
+  );
 
-      if (seenStories[item.url]) {
-        diagnostics[storyCategory].seenRejected += 1;
-        diagnostics.All.seenRejected += 1;
-        continue;
+  for (const result of categoryResults) {
+    mergeDiagnostics(diagnostics, result.diagnostics);
+
+    for (const story of result.stories) {
+      if (!allAcceptedStories.has(story.url)) {
+        allAcceptedStories.set(story.url, story);
       }
-
-      diagnostics[storyCategory].unseen += 1;
-      diagnostics.All.unseen += 1;
-
-      if (!matchesCategory(item, storyCategory)) {
-        diagnostics[storyCategory].categoryRejected += 1;
-        diagnostics.All.categoryRejected += 1;
-        continue;
-      }
-
-      diagnostics[storyCategory].categoryMatched += 1;
-      diagnostics.All.categoryMatched += 1;
-
-      const safetyResult = passesHardSafety(item);
-      if (!safetyResult.accepted) {
-        diagnostics[storyCategory].positivityRejected += 1;
-        diagnostics.All.positivityRejected += 1;
-        continue;
-      }
-      const result = scoreStory(item);
-      diagnostics[storyCategory].cautionPenaltyHits += result.softCautionHits ?? 0;
-      diagnostics.All.cautionPenaltyHits += result.softCautionHits ?? 0;
-
-      if (!result.accepted) {
-        diagnostics[storyCategory].constructiveRejected += 1;
-        diagnostics.All.constructiveRejected += 1;
-        diagnostics[storyCategory].positivityRejected += 1;
-        diagnostics.All.positivityRejected += 1;
-        continue;
-      }
-
-      acceptedStories.set(item.url, {
-        ...item,
-        positiveScore: result.score,
-      });
-      diagnostics[storyCategory].accepted += 1;
-      diagnostics.All.accepted += 1;
     }
   }
 
   const selectedStories = mixStoriesByFreshness(
-    Array.from(acceptedStories.values()),
+    Array.from(allAcceptedStories.values()),
     locationContext,
     targetStoryCount,
   );
@@ -1350,6 +1573,36 @@ async function fetchAllStories(
   return {
     stories: selectedStories,
     diagnostics,
+    metrics: {
+      timestamp: Date.now(),
+      mode: 'refresh',
+      cacheUsed: false,
+      durationMs: Date.now() - fetchStartedAt,
+      locationLabel:
+        [locationContext?.city, locationContext?.region].filter(Boolean).join(', ') ||
+        locationContext?.country ||
+        'Global edition',
+      totalAcceptedStories: Array.from(allAcceptedStories.values()).length,
+      allVisiblePoolCount: selectedStories.length,
+      funnel: {
+        fetched: diagnostics.All.fetched,
+        validBase: diagnostics.All.validBase,
+        credibleSource: diagnostics.All.credibleSource,
+        deduped: diagnostics.All.deduped,
+        unseen: diagnostics.All.unseen,
+        categoryMatched: diagnostics.All.categoryMatched,
+        accepted: diagnostics.All.accepted,
+        invalidRejected: diagnostics.All.invalidRejected,
+        sourceRejected: diagnostics.All.sourceRejected,
+        duplicateRejected: diagnostics.All.duplicateRejected,
+        seenRejected: diagnostics.All.seenRejected,
+        categoryRejected: diagnostics.All.categoryRejected,
+        constructiveRejected: diagnostics.All.constructiveRejected,
+        positivityRejected: diagnostics.All.positivityRejected,
+        feedErrors: diagnostics.All.feedErrors,
+      },
+      categoryMetrics: categoryResults.map((result) => result.metrics),
+    } satisfies RefreshMetrics,
   };
 }
 
@@ -1427,6 +1680,7 @@ export default function App() {
       setVisibleStoryCount(initialVisibleStoryCount);
 
       try {
+        const loadStartedAt = Date.now();
         const loadId = Date.now();
         latestLoadId.current = loadId;
         const [nextSeenStories, visitCount] = await Promise.all([
@@ -1444,7 +1698,40 @@ export default function App() {
           Date.now() - cached.timestamp < storiesCacheTtlMs;
 
         const fetchedResult = shouldReuseCache
-          ? { stories: cached.stories, diagnostics: cachedDiagnostics }
+          ? {
+              stories: cached.stories,
+              diagnostics: cachedDiagnostics,
+              metrics: {
+                timestamp: Date.now(),
+                mode,
+                cacheUsed: true,
+                durationMs: Date.now() - loadStartedAt,
+                locationLabel:
+                  [nextLocationContext?.city, nextLocationContext?.region].filter(Boolean).join(', ') ||
+                  nextLocationContext?.country ||
+                  'Global edition',
+                totalAcceptedStories: cached.stories.length,
+                allVisiblePoolCount: cached.stories.length,
+                funnel: {
+                  fetched: cachedDiagnostics.All.fetched,
+                  validBase: cachedDiagnostics.All.validBase,
+                  credibleSource: cachedDiagnostics.All.credibleSource,
+                  deduped: cachedDiagnostics.All.deduped,
+                  unseen: cachedDiagnostics.All.unseen,
+                  categoryMatched: cachedDiagnostics.All.categoryMatched,
+                  accepted: cachedDiagnostics.All.accepted,
+                  invalidRejected: cachedDiagnostics.All.invalidRejected,
+                  sourceRejected: cachedDiagnostics.All.sourceRejected,
+                  duplicateRejected: cachedDiagnostics.All.duplicateRejected,
+                  seenRejected: cachedDiagnostics.All.seenRejected,
+                  categoryRejected: cachedDiagnostics.All.categoryRejected,
+                  constructiveRejected: cachedDiagnostics.All.constructiveRejected,
+                  positivityRejected: cachedDiagnostics.All.positivityRejected,
+                  feedErrors: cachedDiagnostics.All.feedErrors,
+                },
+                categoryMetrics: [],
+              } satisfies RefreshMetrics,
+            }
           : await fetchAllStories(nextLocationContext, visitCount, nextSeenStories);
         const latestStories = fetchedResult.stories;
         const sanitizedStories = sanitizeStories(latestStories);
@@ -1460,6 +1747,16 @@ export default function App() {
         if (!shouldReuseCache) {
           void saveDiagnosticsCache(fetchedResult.diagnostics);
         }
+        const metrics = {
+          ...fetchedResult.metrics,
+          mode,
+          cacheUsed: shouldReuseCache,
+          durationMs: Date.now() - loadStartedAt,
+          totalAcceptedStories: sanitizedStories.length,
+          allVisiblePoolCount: sanitizedStories.length,
+        } satisfies RefreshMetrics;
+        void appendRefreshMetrics(metrics);
+        logRefreshMetrics(metrics);
         setLastUpdatedLabel(new Date(updatedTimestamp).toLocaleTimeString([], {
           hour: 'numeric',
           minute: '2-digit',
@@ -1645,9 +1942,7 @@ export default function App() {
                     )
                   }
                 >
-                  <Text style={styles.loadMoreButtonText}>
-                    Load more ({availableStories.length - visibleStoryCount} left)
-                  </Text>
+                  <Text style={styles.loadMoreButtonText}>Load more</Text>
                 </Pressable>
               ) : null}
             </View>
