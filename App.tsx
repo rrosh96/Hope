@@ -31,11 +31,68 @@ const parser = new XMLParser({
   textNodeName: 'text',
 });
 
+const palette = {
+  deepBlue: '#1d3557',
+  turquoise: '#457b9d',
+  cream: '#f1faee',
+  peach: '#a8dadc',
+  coral: '#e63946',
+  white: '#ffffff',
+  ink: '#1d3557',
+  mutedInk: '#457b9d',
+};
+
+const alpha = (hex: string, opacity: number) => {
+  const normalized = hex.replace('#', '');
+  const r = Number.parseInt(normalized.slice(0, 2), 16);
+  const g = Number.parseInt(normalized.slice(2, 4), 16);
+  const b = Number.parseInt(normalized.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${opacity})`;
+};
+
+const theme = {
+  backgroundTop: palette.cream,
+  backgroundMiddle: palette.peach,
+  backgroundBottom: palette.white,
+  surfacePrimary: alpha(palette.cream, 0.92),
+  surfaceSecondary: alpha(palette.white, 0.92),
+  surfaceMuted: alpha(palette.peach, 0.72),
+  surfaceOverlay: alpha(palette.cream, 0.86),
+  surfaceOverlayCard: alpha(palette.white, 0.94),
+  surfaceBadge: palette.cream,
+  surfaceError: palette.peach,
+  surfaceHeader: palette.deepBlue,
+  surfaceReader: palette.cream,
+  surfaceReaderMeta: palette.peach,
+  surfaceReaderWeb: palette.white,
+  textPrimary: palette.ink,
+  textSecondary: palette.mutedInk,
+  textOnDark: palette.white,
+  textMutedOnDark: palette.cream,
+  accentPrimary: palette.turquoise,
+  accentSecondary: palette.deepBlue,
+  accentWarm: palette.coral,
+  borderSoft: palette.peach,
+  shadow: palette.deepBlue,
+};
+
 const htmlEntityMap: Record<string, string> = {
   '&amp;': '&',
   '&lt;': '<',
   '&gt;': '>',
   '&quot;': '"',
+  '&apos;': "'",
+  '&nbsp;': ' ',
+  '&ndash;': '-',
+  '&mdash;': '-',
+  '&lsquo;': "'",
+  '&rsquo;': "'",
+  '&ldquo;': '"',
+  '&rdquo;': '"',
+  '&hellip;': '...',
+  '&copy;': '©',
+  '&reg;': '®',
+  '&trade;': '™',
   '&#39;': "'",
 };
 
@@ -229,6 +286,20 @@ const clickbaitSignals = [
   'epic',
   'unbelievable',
   'jaw-dropping',
+];
+
+const introBoilerplatePatterns = [
+  /comprehensive,\s*up-to-date news coverage/i,
+  /aggregated from sources all over the world by google news/i,
+  /read full article/i,
+  /read full story/i,
+  /full coverage/i,
+  /see full coverage/i,
+  /more for you/i,
+  /more on this story/i,
+  /continue reading/i,
+  /follow us/i,
+  /google news/i,
 ];
 
 const vagueSourceNames = new Set([
@@ -437,6 +508,8 @@ const categoryConstructiveSignals: Record<NewsCategory, string[]> = {
 
 const minimumPositiveScore = 2;
 const targetStoryCount = 150;
+const categoryTargetStoryCount = 20;
+const feedParallelism = 6;
 const initialVisibleStoryCount = 5;
 const loadMoreBatchSize = 5;
 const maxIntroWords = 50;
@@ -446,8 +519,48 @@ const visitCountStorageKey = 'hope:visit-count';
 const storiesCacheStorageKey = 'hope:stories-cache';
 const storiesCacheTimestampStorageKey = 'hope:stories-cache-timestamp';
 const diagnosticsStorageKey = 'hope:stories-diagnostics';
+const metricsHistoryStorageKey = 'hope:metrics-history';
 const seenStoryCooldownMs = 3 * 24 * 60 * 60 * 1000;
 const storiesCacheTtlMs = 5 * 60 * 1000;
+const metricsHistoryLimit = 20;
+
+interface CategoryFetchMetrics {
+  category: Exclude<NewsCategory, 'All'>;
+  durationMs: number;
+  acceptedCount: number;
+  attemptedFeeds: number;
+  successfulFeeds: number;
+  failedFeeds: number;
+  scannedTiers: Array<NonNullable<FeedSource['tier']>>;
+}
+
+interface RefreshMetrics {
+  timestamp: number;
+  mode: 'load' | 'refresh';
+  cacheUsed: boolean;
+  durationMs: number;
+  locationLabel: string;
+  totalAcceptedStories: number;
+  allVisiblePoolCount: number;
+  funnel: {
+    fetched: number;
+    validBase: number;
+    credibleSource: number;
+    deduped: number;
+    unseen: number;
+    categoryMatched: number;
+    accepted: number;
+    invalidRejected: number;
+    sourceRejected: number;
+    duplicateRejected: number;
+    seenRejected: number;
+    categoryRejected: number;
+    constructiveRejected: number;
+    positivityRejected: number;
+    feedErrors: number;
+  };
+  categoryMetrics: CategoryFetchMetrics[];
+}
 
 interface CategoryDiagnostics {
   fetched: number;
@@ -537,6 +650,37 @@ function shuffleArray<T>(items: T[]) {
   }
 
   return next;
+}
+
+function chunkArray<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
+}
+
+function mergeDiagnostics(target: DiagnosticsMap, source: DiagnosticsMap) {
+  for (const category of categories) {
+    target[category].fetched += source[category].fetched;
+    target[category].feedErrors += source[category].feedErrors;
+    target[category].invalidRejected += source[category].invalidRejected;
+    target[category].validBase += source[category].validBase;
+    target[category].sourceRejected += source[category].sourceRejected;
+    target[category].credibleSource += source[category].credibleSource;
+    target[category].duplicateRejected += source[category].duplicateRejected;
+    target[category].deduped += source[category].deduped;
+    target[category].seenRejected += source[category].seenRejected;
+    target[category].unseen += source[category].unseen;
+    target[category].categoryRejected += source[category].categoryRejected;
+    target[category].categoryMatched += source[category].categoryMatched;
+    target[category].positivityRejected += source[category].positivityRejected;
+    target[category].accepted += source[category].accepted;
+    target[category].constructiveRejected += source[category].constructiveRejected;
+    target[category].cautionPenaltyHits += source[category].cautionPenaltyHits;
+  }
 }
 
 function isStoryFromToday(dateString: string) {
@@ -657,6 +801,34 @@ async function saveDiagnosticsCache(diagnostics: DiagnosticsMap) {
   await AsyncStorage.setItem(diagnosticsStorageKey, JSON.stringify(diagnostics));
 }
 
+async function appendRefreshMetrics(metrics: RefreshMetrics) {
+  try {
+    const rawValue = await AsyncStorage.getItem(metricsHistoryStorageKey);
+    const history = rawValue ? (JSON.parse(rawValue) as RefreshMetrics[]) : [];
+    const nextHistory = [metrics, ...history].slice(0, metricsHistoryLimit);
+    await AsyncStorage.setItem(metricsHistoryStorageKey, JSON.stringify(nextHistory));
+  } catch {
+    // Ignore metrics write failures so the feed never breaks for telemetry.
+  }
+}
+
+function logRefreshMetrics(metrics: RefreshMetrics) {
+  const categorySummary = metrics.categoryMetrics
+    .map(
+      (entry) =>
+        `${entry.category}:${entry.acceptedCount} in ${entry.durationMs}ms (${entry.successfulFeeds}/${entry.attemptedFeeds} feeds)`,
+    )
+    .join(' | ');
+
+  console.info(
+    `[Hope Metrics] mode=${metrics.mode} cacheUsed=${metrics.cacheUsed} durationMs=${metrics.durationMs} totalAccepted=${metrics.totalAcceptedStories} visiblePool=${metrics.allVisiblePoolCount}`,
+  );
+  console.info(
+    `[Hope Funnel] fetched=${metrics.funnel.fetched} valid=${metrics.funnel.validBase} source=${metrics.funnel.credibleSource} deduped=${metrics.funnel.deduped} unseen=${metrics.funnel.unseen} matched=${metrics.funnel.categoryMatched} accepted=${metrics.funnel.accepted} rejected=${metrics.funnel.positivityRejected}`,
+  );
+  console.info(`[Hope Categories] ${categorySummary}`);
+}
+
 function isReadableIntro(text: string) {
   const normalized = stripHtml(text);
 
@@ -681,6 +853,10 @@ function isReadableIntro(text: string) {
   }
 
   if (/\.cls-\d|fill:|opacity:|isolate:|url\(#|google-news follow us/i.test(normalized)) {
+    return false;
+  }
+
+  if (introBoilerplatePatterns.some((pattern) => pattern.test(normalized))) {
     return false;
   }
 
@@ -793,7 +969,34 @@ function matchesCategory(item: NewsItem, category: NewsCategory) {
 }
 
 function decodeHtml(text: string) {
-  return text.replace(/&(amp|lt|gt|quot|#39);/g, (match) => htmlEntityMap[match] ?? match);
+  return text
+    .replace(/&#(\d+);/g, (match, decimalCode) => {
+      const codePoint = Number.parseInt(decimalCode, 10);
+
+      if (!Number.isFinite(codePoint)) {
+        return match;
+      }
+
+      try {
+        return String.fromCodePoint(codePoint);
+      } catch {
+        return match;
+      }
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (match, hexCode) => {
+      const codePoint = Number.parseInt(hexCode, 16);
+
+      if (!Number.isFinite(codePoint)) {
+        return match;
+      }
+
+      try {
+        return String.fromCodePoint(codePoint);
+      } catch {
+        return match;
+      }
+    })
+    .replace(/&[a-z]+;/gi, (match) => htmlEntityMap[match.toLowerCase()] ?? match);
 }
 
 function stripHtml(text?: string) {
@@ -1254,95 +1457,160 @@ async function fetchAllStories(
   visitCount = 0,
   seenStories: Record<string, number> = {},
 ) {
-  const acceptedStories = new Map<string, NewsItem>();
-  const seenUrls = new Set<string>();
+  const fetchStartedAt = Date.now();
   const diagnostics = createEmptyDiagnostics();
-  const categoryFeeds = buildCategoryFeedUrls(locationContext).All;
-  const feedUrls: FeedSource[] = rotateArray(categoryFeeds, visitCount);
+  const allAcceptedStories = new Map<string, NewsItem>();
+  const categoryFeedMap = buildCategoryFeedUrls(locationContext);
+  const categoriesToFetch = categories.filter(
+    (category): category is Exclude<NewsCategory, 'All'> => category !== 'All',
+  );
 
-  for (const feedUrl of feedUrls) {
-    let newsItems: NewsItem[] = [];
-    let feedDiagnostics = createEmptyDiagnostics();
+  const categoryResults = await Promise.all(
+    categoriesToFetch.map(async (category, categoryIndex) => {
+      const categoryStartedAt = Date.now();
+      const categoryDiagnostics = createEmptyDiagnostics();
+      const acceptedStories = new Map<string, NewsItem>();
+      const seenUrls = new Set<string>();
+      const feeds = rotateArray(categoryFeedMap[category], visitCount + categoryIndex);
+      const tiers: Array<NonNullable<FeedSource['tier']>> = ['priority', 'secondary', 'fallback'];
+      const scannedTiers = new Set<NonNullable<FeedSource['tier']>>();
+      let attemptedFeeds = 0;
+      let successfulFeeds = 0;
+      let failedFeeds = 0;
 
-    try {
-      const result = await fetchFeedUrl(feedUrl, feedUrl.category ?? 'All');
-      newsItems = result.newsItems;
-      feedDiagnostics = result.diagnostics;
-    } catch {
-      const categoryKey = feedUrl.category ?? 'All';
-      diagnostics[categoryKey].feedErrors += 1;
-      diagnostics.All.feedErrors += 1;
-      continue;
-    }
+      for (const tier of tiers) {
+        if (acceptedStories.size >= categoryTargetStoryCount) {
+          break;
+        }
 
-    for (const category of categories) {
-      diagnostics[category].fetched += feedDiagnostics[category].fetched;
-      diagnostics[category].invalidRejected += feedDiagnostics[category].invalidRejected;
-      diagnostics[category].validBase += feedDiagnostics[category].validBase;
-      diagnostics[category].sourceRejected += feedDiagnostics[category].sourceRejected;
-      diagnostics[category].credibleSource += feedDiagnostics[category].credibleSource;
-    }
+        const tierFeeds = feeds.filter((feed) => (feed.tier ?? 'secondary') === tier);
+        if (tierFeeds.length > 0) {
+          scannedTiers.add(tier);
+        }
 
-    for (const item of newsItems) {
-      const storyCategory = item.category;
+        for (const feedChunk of chunkArray(tierFeeds, feedParallelism)) {
+          if (acceptedStories.size >= categoryTargetStoryCount) {
+            break;
+          }
 
-      if (seenUrls.has(item.url)) {
-        diagnostics[storyCategory].duplicateRejected += 1;
-        diagnostics.All.duplicateRejected += 1;
-        continue;
+          attemptedFeeds += feedChunk.length;
+
+          const settledResults = await Promise.allSettled(
+            feedChunk.map((feed) => fetchFeedUrl(feed, category)),
+          );
+
+          for (let index = 0; index < settledResults.length; index += 1) {
+            const settledResult = settledResults[index];
+
+            if (settledResult.status === 'rejected') {
+              failedFeeds += 1;
+              categoryDiagnostics[category].feedErrors += 1;
+              categoryDiagnostics.All.feedErrors += 1;
+              continue;
+            }
+
+            successfulFeeds += 1;
+            const { newsItems, diagnostics: feedDiagnostics } = settledResult.value;
+            mergeDiagnostics(categoryDiagnostics, feedDiagnostics);
+
+            for (const item of newsItems) {
+              if (acceptedStories.size >= categoryTargetStoryCount) {
+                break;
+              }
+
+              const storyCategory = item.category;
+
+              if (seenUrls.has(item.url)) {
+                categoryDiagnostics[storyCategory].duplicateRejected += 1;
+                categoryDiagnostics.All.duplicateRejected += 1;
+                continue;
+              }
+              seenUrls.add(item.url);
+
+              categoryDiagnostics[storyCategory].deduped += 1;
+              categoryDiagnostics.All.deduped += 1;
+
+              if (seenStories[item.url]) {
+                categoryDiagnostics[storyCategory].seenRejected += 1;
+                categoryDiagnostics.All.seenRejected += 1;
+                continue;
+              }
+
+              categoryDiagnostics[storyCategory].unseen += 1;
+              categoryDiagnostics.All.unseen += 1;
+
+              if (!matchesCategory(item, storyCategory)) {
+                categoryDiagnostics[storyCategory].categoryRejected += 1;
+                categoryDiagnostics.All.categoryRejected += 1;
+                continue;
+              }
+
+              categoryDiagnostics[storyCategory].categoryMatched += 1;
+              categoryDiagnostics.All.categoryMatched += 1;
+
+              const safetyResult = passesHardSafety(item);
+              if (!safetyResult.accepted) {
+                categoryDiagnostics[storyCategory].positivityRejected += 1;
+                categoryDiagnostics.All.positivityRejected += 1;
+                continue;
+              }
+
+              const result = scoreStory(item);
+              categoryDiagnostics[storyCategory].cautionPenaltyHits += result.softCautionHits ?? 0;
+              categoryDiagnostics.All.cautionPenaltyHits += result.softCautionHits ?? 0;
+
+              if (!result.accepted) {
+                categoryDiagnostics[storyCategory].constructiveRejected += 1;
+                categoryDiagnostics.All.constructiveRejected += 1;
+                categoryDiagnostics[storyCategory].positivityRejected += 1;
+                categoryDiagnostics.All.positivityRejected += 1;
+                continue;
+              }
+
+              acceptedStories.set(item.url, {
+                ...item,
+                positiveScore: result.score,
+              });
+              categoryDiagnostics[storyCategory].accepted += 1;
+              categoryDiagnostics.All.accepted += 1;
+            }
+          }
+        }
       }
-      seenUrls.add(item.url);
 
-      diagnostics[storyCategory].deduped += 1;
-      diagnostics.All.deduped += 1;
+      return {
+        category,
+        stories: mixStoriesByFreshness(
+          Array.from(acceptedStories.values()),
+          locationContext,
+          categoryTargetStoryCount,
+        ),
+        diagnostics: categoryDiagnostics,
+        metrics: {
+          category,
+          durationMs: Date.now() - categoryStartedAt,
+          acceptedCount: acceptedStories.size,
+          attemptedFeeds,
+          successfulFeeds,
+          failedFeeds,
+          scannedTiers: Array.from(scannedTiers),
+        } satisfies CategoryFetchMetrics,
+      };
+    }),
+  );
 
-      if (seenStories[item.url]) {
-        diagnostics[storyCategory].seenRejected += 1;
-        diagnostics.All.seenRejected += 1;
-        continue;
+  for (const result of categoryResults) {
+    mergeDiagnostics(diagnostics, result.diagnostics);
+
+    for (const story of result.stories) {
+      if (!allAcceptedStories.has(story.url)) {
+        allAcceptedStories.set(story.url, story);
       }
-
-      diagnostics[storyCategory].unseen += 1;
-      diagnostics.All.unseen += 1;
-
-      if (!matchesCategory(item, storyCategory)) {
-        diagnostics[storyCategory].categoryRejected += 1;
-        diagnostics.All.categoryRejected += 1;
-        continue;
-      }
-
-      diagnostics[storyCategory].categoryMatched += 1;
-      diagnostics.All.categoryMatched += 1;
-
-      const safetyResult = passesHardSafety(item);
-      if (!safetyResult.accepted) {
-        diagnostics[storyCategory].positivityRejected += 1;
-        diagnostics.All.positivityRejected += 1;
-        continue;
-      }
-      const result = scoreStory(item);
-      diagnostics[storyCategory].cautionPenaltyHits += result.softCautionHits ?? 0;
-      diagnostics.All.cautionPenaltyHits += result.softCautionHits ?? 0;
-
-      if (!result.accepted) {
-        diagnostics[storyCategory].constructiveRejected += 1;
-        diagnostics.All.constructiveRejected += 1;
-        diagnostics[storyCategory].positivityRejected += 1;
-        diagnostics.All.positivityRejected += 1;
-        continue;
-      }
-
-      acceptedStories.set(item.url, {
-        ...item,
-        positiveScore: result.score,
-      });
-      diagnostics[storyCategory].accepted += 1;
-      diagnostics.All.accepted += 1;
     }
   }
 
   const selectedStories = mixStoriesByFreshness(
-    Array.from(acceptedStories.values()),
+    Array.from(allAcceptedStories.values()),
     locationContext,
     targetStoryCount,
   );
@@ -1350,6 +1618,36 @@ async function fetchAllStories(
   return {
     stories: selectedStories,
     diagnostics,
+    metrics: {
+      timestamp: Date.now(),
+      mode: 'refresh',
+      cacheUsed: false,
+      durationMs: Date.now() - fetchStartedAt,
+      locationLabel:
+        [locationContext?.city, locationContext?.region].filter(Boolean).join(', ') ||
+        locationContext?.country ||
+        'Global edition',
+      totalAcceptedStories: Array.from(allAcceptedStories.values()).length,
+      allVisiblePoolCount: selectedStories.length,
+      funnel: {
+        fetched: diagnostics.All.fetched,
+        validBase: diagnostics.All.validBase,
+        credibleSource: diagnostics.All.credibleSource,
+        deduped: diagnostics.All.deduped,
+        unseen: diagnostics.All.unseen,
+        categoryMatched: diagnostics.All.categoryMatched,
+        accepted: diagnostics.All.accepted,
+        invalidRejected: diagnostics.All.invalidRejected,
+        sourceRejected: diagnostics.All.sourceRejected,
+        duplicateRejected: diagnostics.All.duplicateRejected,
+        seenRejected: diagnostics.All.seenRejected,
+        categoryRejected: diagnostics.All.categoryRejected,
+        constructiveRejected: diagnostics.All.constructiveRejected,
+        positivityRejected: diagnostics.All.positivityRejected,
+        feedErrors: diagnostics.All.feedErrors,
+      },
+      categoryMetrics: categoryResults.map((result) => result.metrics),
+    } satisfies RefreshMetrics,
   };
 }
 
@@ -1427,6 +1725,7 @@ export default function App() {
       setVisibleStoryCount(initialVisibleStoryCount);
 
       try {
+        const loadStartedAt = Date.now();
         const loadId = Date.now();
         latestLoadId.current = loadId;
         const [nextSeenStories, visitCount] = await Promise.all([
@@ -1444,7 +1743,40 @@ export default function App() {
           Date.now() - cached.timestamp < storiesCacheTtlMs;
 
         const fetchedResult = shouldReuseCache
-          ? { stories: cached.stories, diagnostics: cachedDiagnostics }
+          ? {
+              stories: cached.stories,
+              diagnostics: cachedDiagnostics,
+              metrics: {
+                timestamp: Date.now(),
+                mode,
+                cacheUsed: true,
+                durationMs: Date.now() - loadStartedAt,
+                locationLabel:
+                  [nextLocationContext?.city, nextLocationContext?.region].filter(Boolean).join(', ') ||
+                  nextLocationContext?.country ||
+                  'Global edition',
+                totalAcceptedStories: cached.stories.length,
+                allVisiblePoolCount: cached.stories.length,
+                funnel: {
+                  fetched: cachedDiagnostics.All.fetched,
+                  validBase: cachedDiagnostics.All.validBase,
+                  credibleSource: cachedDiagnostics.All.credibleSource,
+                  deduped: cachedDiagnostics.All.deduped,
+                  unseen: cachedDiagnostics.All.unseen,
+                  categoryMatched: cachedDiagnostics.All.categoryMatched,
+                  accepted: cachedDiagnostics.All.accepted,
+                  invalidRejected: cachedDiagnostics.All.invalidRejected,
+                  sourceRejected: cachedDiagnostics.All.sourceRejected,
+                  duplicateRejected: cachedDiagnostics.All.duplicateRejected,
+                  seenRejected: cachedDiagnostics.All.seenRejected,
+                  categoryRejected: cachedDiagnostics.All.categoryRejected,
+                  constructiveRejected: cachedDiagnostics.All.constructiveRejected,
+                  positivityRejected: cachedDiagnostics.All.positivityRejected,
+                  feedErrors: cachedDiagnostics.All.feedErrors,
+                },
+                categoryMetrics: [],
+              } satisfies RefreshMetrics,
+            }
           : await fetchAllStories(nextLocationContext, visitCount, nextSeenStories);
         const latestStories = fetchedResult.stories;
         const sanitizedStories = sanitizeStories(latestStories);
@@ -1460,6 +1792,16 @@ export default function App() {
         if (!shouldReuseCache) {
           void saveDiagnosticsCache(fetchedResult.diagnostics);
         }
+        const metrics = {
+          ...fetchedResult.metrics,
+          mode,
+          cacheUsed: shouldReuseCache,
+          durationMs: Date.now() - loadStartedAt,
+          totalAcceptedStories: sanitizedStories.length,
+          allVisiblePoolCount: sanitizedStories.length,
+        } satisfies RefreshMetrics;
+        void appendRefreshMetrics(metrics);
+        logRefreshMetrics(metrics);
         setLastUpdatedLabel(new Date(updatedTimestamp).toLocaleTimeString([], {
           hour: 'numeric',
           minute: '2-digit',
@@ -1526,7 +1868,10 @@ export default function App() {
   const visibleStories = availableStories.slice(0, visibleStoryCount);
   const canLoadMore = visibleStoryCount < availableStories.length;
   return (
-    <LinearGradient colors={['#eef7ff', '#f8f2eb', '#fffdf8']} style={styles.screen}>
+    <LinearGradient
+      colors={[theme.backgroundTop, theme.backgroundMiddle, theme.backgroundBottom]}
+      style={styles.screen}
+    >
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
 
@@ -1587,7 +1932,7 @@ export default function App() {
 
           {loading ? (
             <View style={styles.loadingState}>
-              <ActivityIndicator size="large" color="#172235" />
+              <ActivityIndicator size="large" color={theme.accentSecondary} />
               <Text style={styles.loadingText}>Loading live headlines...</Text>
             </View>
           ) : null}
@@ -1645,9 +1990,7 @@ export default function App() {
                     )
                   }
                 >
-                  <Text style={styles.loadMoreButtonText}>
-                    Load more ({availableStories.length - visibleStoryCount} left)
-                  </Text>
+                  <Text style={styles.loadMoreButtonText}>Load more</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -1657,7 +2000,7 @@ export default function App() {
         {refreshing && !loading ? (
           <View style={styles.refreshOverlay}>
             <View style={styles.refreshOverlayCard}>
-              <ActivityIndicator size="large" color="#172235" />
+              <ActivityIndicator size="large" color={theme.accentSecondary} />
               <Text style={styles.refreshOverlayTitle}>Refreshing good news</Text>
               <Text style={styles.refreshOverlayText}>
                 Pulling all source pools again for the latest positive stories.
@@ -1694,7 +2037,7 @@ export default function App() {
 
                 {sourceReaderLoading ? (
                   <View pointerEvents="none" style={styles.readerLoadingOverlay}>
-                    <ActivityIndicator size="large" color="#172235" />
+                    <ActivityIndicator size="large" color={theme.accentSecondary} />
                     <Text style={styles.readerLoadingText}>Opening source...</Text>
                   </View>
                 ) : null}
@@ -1734,18 +2077,18 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   heroCard: {
-    backgroundColor: 'rgba(255,255,255,0.86)',
+    backgroundColor: theme.surfacePrimary,
     borderRadius: 28,
     padding: 22,
     marginBottom: 18,
-    shadowColor: '#20304a',
+    shadowColor: theme.shadow,
     shadowOpacity: 0.08,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
     elevation: 3,
   },
   eyebrow: {
-    color: '#5f6f85',
+    color: theme.accentSecondary,
     fontSize: 13,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -1753,19 +2096,19 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   title: {
-    color: '#152033',
+    color: theme.textPrimary,
     fontSize: 36,
     fontWeight: '800',
     marginBottom: 8,
   },
   subtitle: {
-    color: '#46556b',
+    color: theme.textSecondary,
     fontSize: 16,
     lineHeight: 24,
     marginBottom: 10,
   },
   lastUpdatedText: {
-    color: '#6e7b8e',
+    color: theme.textSecondary,
     fontSize: 13,
     fontWeight: '600',
     marginBottom: 18,
@@ -1778,13 +2121,13 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   locationPill: {
-    backgroundColor: '#eef1f4',
+    backgroundColor: theme.surfaceReaderMeta,
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
   locationValue: {
-    color: '#2f3b4b',
+    color: theme.textPrimary,
     fontSize: 14,
     fontWeight: '700',
   },
@@ -1793,22 +2136,22 @@ const styles = StyleSheet.create({
     paddingRight: 18,
   },
   categoryChip: {
-    backgroundColor: 'rgba(255,255,255,0.7)',
+    backgroundColor: theme.surfaceMuted,
     borderRadius: 999,
     paddingHorizontal: 16,
     paddingVertical: 10,
     marginRight: 10,
   },
   categoryChipActive: {
-    backgroundColor: '#1da88d',
+    backgroundColor: theme.accentPrimary,
   },
   categoryChipText: {
-    color: '#324155',
+    color: theme.textPrimary,
     fontSize: 14,
     fontWeight: '700',
   },
   categoryChipTextActive: {
-    color: '#fffaf3',
+    color: theme.textOnDark,
   },
   loadingState: {
     alignItems: 'center',
@@ -1816,7 +2159,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 14,
-    color: '#526177',
+    color: theme.textSecondary,
     fontSize: 15,
     fontWeight: '600',
   },
@@ -1824,7 +2167,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 253, 248, 0.82)',
+    backgroundColor: theme.surfaceOverlay,
     paddingHorizontal: 24,
     zIndex: 5,
   },
@@ -1832,11 +2175,11 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 360,
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.94)',
+    backgroundColor: theme.surfaceOverlayCard,
     borderRadius: 28,
     paddingHorizontal: 24,
     paddingVertical: 28,
-    shadowColor: '#20304a',
+    shadowColor: theme.shadow,
     shadowOpacity: 0.1,
     shadowRadius: 20,
     shadowOffset: { width: 0, height: 10 },
@@ -1844,33 +2187,33 @@ const styles = StyleSheet.create({
   },
   refreshOverlayTitle: {
     marginTop: 16,
-    color: '#152033',
+    color: theme.textPrimary,
     fontSize: 20,
     fontWeight: '800',
     textAlign: 'center',
   },
   refreshOverlayText: {
     marginTop: 10,
-    color: '#526177',
+    color: theme.textSecondary,
     fontSize: 15,
     lineHeight: 22,
     fontWeight: '600',
     textAlign: 'center',
   },
   errorCard: {
-    backgroundColor: '#eef8f5',
+    backgroundColor: theme.surfaceError,
     borderRadius: 24,
     padding: 18,
     marginTop: 14,
   },
   errorTitle: {
-    color: '#166a5a',
+    color: theme.accentWarm,
     fontSize: 16,
     fontWeight: '800',
     marginBottom: 6,
   },
   errorText: {
-    color: '#2c6f63',
+    color: theme.textPrimary,
     lineHeight: 22,
   },
   storyList: {
@@ -1878,10 +2221,10 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   storyCard: {
-    backgroundColor: 'rgba(255,255,255,0.9)',
+    backgroundColor: theme.surfaceSecondary,
     borderRadius: 24,
     overflow: 'hidden',
-    shadowColor: '#24324a',
+    shadowColor: theme.shadow,
     shadowOpacity: 0.08,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 10 },
@@ -1889,18 +2232,18 @@ const styles = StyleSheet.create({
   },
   storyVisualFallback: {
     minHeight: 130,
-    backgroundColor: '#172235',
+    backgroundColor: theme.surfaceHeader,
     padding: 18,
     justifyContent: 'space-between',
   },
   storyVisualHeadline: {
-    color: '#ffffff',
+    color: theme.textOnDark,
     fontSize: 22,
     fontWeight: '800',
     lineHeight: 28,
   },
   storyVisualSource: {
-    color: '#93e2d2',
+    color: theme.textMutedOnDark,
     fontSize: 13,
     fontWeight: '800',
     textTransform: 'uppercase',
@@ -1915,18 +2258,18 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   storyCategory: {
-    color: '#1da88d',
+    color: theme.accentPrimary,
     fontSize: 13,
     fontWeight: '800',
   },
   storyTime: {
-    color: '#6d7a8d',
+    color: theme.textSecondary,
     fontSize: 12,
     fontWeight: '600',
   },
   scoreBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: '#e6f7f3',
+    backgroundColor: theme.surfaceBadge,
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -1934,48 +2277,48 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   scoreBadgeLabel: {
-    color: '#2e7b69',
+    color: theme.accentSecondary,
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginBottom: 2,
   },
   scoreBadgeText: {
-    color: '#0f5c4d',
+    color: theme.textPrimary,
     fontSize: 14,
     fontWeight: '800',
   },
   loadMoreButton: {
     marginTop: 4,
-    backgroundColor: '#1da88d',
+    backgroundColor: theme.accentPrimary,
     borderRadius: 20,
     alignItems: 'center',
     paddingVertical: 16,
     paddingHorizontal: 18,
   },
   loadMoreButtonText: {
-    color: '#ffffff',
+    color: theme.textOnDark,
     fontSize: 15,
     fontWeight: '800',
   },
   storyDescription: {
-    color: '#4f5f74',
+    color: theme.textSecondary,
     fontSize: 15,
     lineHeight: 22,
     marginBottom: 0,
   },
   storyFooter: {
-    color: '#7a8798',
+    color: theme.textSecondary,
     fontSize: 13,
     fontWeight: '600',
   },
   modalScreen: {
     flex: 1,
-    backgroundColor: '#fffaf5',
+    backgroundColor: theme.surfaceReader,
   },
   readerScreen: {
     flex: 1,
-    backgroundColor: '#fffaf5',
+    backgroundColor: theme.surfaceReader,
   },
   readerHeader: {
     flexDirection: 'row',
@@ -1985,15 +2328,15 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#d7deea',
-    backgroundColor: '#fffaf5',
+    borderBottomColor: theme.borderSoft,
+    backgroundColor: theme.surfaceReader,
   },
   readerHeaderText: {
     flex: 1,
     paddingRight: 12,
   },
   readerEyebrow: {
-    color: '#6b7a8d',
+    color: theme.accentSecondary,
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -2001,24 +2344,24 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   readerTitle: {
-    color: '#172235',
+    color: theme.textPrimary,
     fontSize: 18,
     fontWeight: '800',
   },
   readerSubtitle: {
-    color: '#4f5f74',
+    color: theme.textSecondary,
     fontSize: 13,
     lineHeight: 18,
     marginTop: 4,
   },
   readerCloseButton: {
-    backgroundColor: '#172235',
+    backgroundColor: theme.accentPrimary,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
   readerCloseButtonText: {
-    color: '#ffffff',
+    color: theme.textOnDark,
     fontWeight: '800',
   },
   readerMetaBar: {
@@ -2026,22 +2369,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 10,
-    backgroundColor: '#eef4fb',
+    backgroundColor: theme.surfaceReaderMeta,
     gap: 8,
   },
   readerMetaText: {
-    color: '#526177',
+    color: theme.textPrimary,
     fontSize: 12,
     fontWeight: '700',
   },
   readerMetaDot: {
-    color: '#8b97a9',
+    color: theme.accentWarm,
     fontSize: 12,
     fontWeight: '700',
   },
   readerWebView: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.surfaceReaderWeb,
   },
   readerLoadingOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -2049,10 +2392,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
-    backgroundColor: 'rgba(255,250,245,0.95)',
+    backgroundColor: alpha(theme.surfaceReader, 0.95),
   },
   readerLoadingText: {
-    color: '#526177',
+    color: theme.textSecondary,
     fontSize: 15,
     fontWeight: '600',
   },
