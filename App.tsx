@@ -31,6 +31,51 @@ const parser = new XMLParser({
   textNodeName: 'text',
 });
 
+const palette = {
+  deepBlue: '#1d3557',
+  turquoise: '#457b9d',
+  cream: '#f1faee',
+  peach: '#a8dadc',
+  coral: '#e63946',
+  white: '#ffffff',
+  ink: '#1d3557',
+  mutedInk: '#457b9d',
+};
+
+const alpha = (hex: string, opacity: number) => {
+  const normalized = hex.replace('#', '');
+  const r = Number.parseInt(normalized.slice(0, 2), 16);
+  const g = Number.parseInt(normalized.slice(2, 4), 16);
+  const b = Number.parseInt(normalized.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${opacity})`;
+};
+
+const theme = {
+  backgroundTop: palette.cream,
+  backgroundMiddle: palette.peach,
+  backgroundBottom: palette.white,
+  surfacePrimary: alpha(palette.cream, 0.92),
+  surfaceSecondary: alpha(palette.white, 0.92),
+  surfaceMuted: alpha(palette.peach, 0.72),
+  surfaceOverlay: alpha(palette.cream, 0.86),
+  surfaceOverlayCard: alpha(palette.white, 0.94),
+  surfaceBadge: palette.cream,
+  surfaceError: palette.peach,
+  surfaceHeader: palette.deepBlue,
+  surfaceReader: palette.cream,
+  surfaceReaderMeta: palette.peach,
+  surfaceReaderWeb: palette.white,
+  textPrimary: palette.ink,
+  textSecondary: palette.mutedInk,
+  textOnDark: palette.white,
+  textMutedOnDark: palette.cream,
+  accentPrimary: palette.turquoise,
+  accentSecondary: palette.deepBlue,
+  accentWarm: palette.coral,
+  borderSoft: palette.peach,
+  shadow: palette.deepBlue,
+};
+
 const htmlEntityMap: Record<string, string> = {
   '&amp;': '&',
   '&lt;': '<',
@@ -1823,7 +1868,10 @@ export default function App() {
   const visibleStories = availableStories.slice(0, visibleStoryCount);
   const canLoadMore = visibleStoryCount < availableStories.length;
   return (
-    <LinearGradient colors={['#eef7ff', '#f8f2eb', '#fffdf8']} style={styles.screen}>
+    <LinearGradient
+      colors={[theme.backgroundTop, theme.backgroundMiddle, theme.backgroundBottom]}
+      style={styles.screen}
+    >
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
 
@@ -1884,7 +1932,7 @@ export default function App() {
 
           {loading ? (
             <View style={styles.loadingState}>
-              <ActivityIndicator size="large" color="#172235" />
+              <ActivityIndicator size="large" color={theme.accentSecondary} />
               <Text style={styles.loadingText}>Loading live headlines...</Text>
             </View>
           ) : null}
@@ -1952,7 +2000,7 @@ export default function App() {
         {refreshing && !loading ? (
           <View style={styles.refreshOverlay}>
             <View style={styles.refreshOverlayCard}>
-              <ActivityIndicator size="large" color="#172235" />
+              <ActivityIndicator size="large" color={theme.accentSecondary} />
               <Text style={styles.refreshOverlayTitle}>Refreshing good news</Text>
               <Text style={styles.refreshOverlayText}>
                 Pulling all source pools again for the latest positive stories.
@@ -1989,7 +2037,7 @@ export default function App() {
 
                 {sourceReaderLoading ? (
                   <View pointerEvents="none" style={styles.readerLoadingOverlay}>
-                    <ActivityIndicator size="large" color="#172235" />
+                    <ActivityIndicator size="large" color={theme.accentSecondary} />
                     <Text style={styles.readerLoadingText}>Opening source...</Text>
                   </View>
                 ) : null}
@@ -2029,18 +2077,18 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   heroCard: {
-    backgroundColor: 'rgba(255,255,255,0.86)',
+    backgroundColor: theme.surfacePrimary,
     borderRadius: 28,
     padding: 22,
     marginBottom: 18,
-    shadowColor: '#20304a',
+    shadowColor: theme.shadow,
     shadowOpacity: 0.08,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
     elevation: 3,
   },
   eyebrow: {
-    color: '#5f6f85',
+    color: theme.accentSecondary,
     fontSize: 13,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -2048,19 +2096,19 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   title: {
-    color: '#152033',
+    color: theme.textPrimary,
     fontSize: 36,
     fontWeight: '800',
     marginBottom: 8,
   },
   subtitle: {
-    color: '#46556b',
+    color: theme.textSecondary,
     fontSize: 16,
     lineHeight: 24,
     marginBottom: 10,
   },
   lastUpdatedText: {
-    color: '#6e7b8e',
+    color: theme.textSecondary,
     fontSize: 13,
     fontWeight: '600',
     marginBottom: 18,
@@ -2073,13 +2121,13 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   locationPill: {
-    backgroundColor: '#eef1f4',
+    backgroundColor: theme.surfaceReaderMeta,
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
   locationValue: {
-    color: '#2f3b4b',
+    color: theme.textPrimary,
     fontSize: 14,
     fontWeight: '700',
   },
@@ -2088,22 +2136,22 @@ const styles = StyleSheet.create({
     paddingRight: 18,
   },
   categoryChip: {
-    backgroundColor: 'rgba(255,255,255,0.7)',
+    backgroundColor: theme.surfaceMuted,
     borderRadius: 999,
     paddingHorizontal: 16,
     paddingVertical: 10,
     marginRight: 10,
   },
   categoryChipActive: {
-    backgroundColor: '#1da88d',
+    backgroundColor: theme.accentPrimary,
   },
   categoryChipText: {
-    color: '#324155',
+    color: theme.textPrimary,
     fontSize: 14,
     fontWeight: '700',
   },
   categoryChipTextActive: {
-    color: '#fffaf3',
+    color: theme.textOnDark,
   },
   loadingState: {
     alignItems: 'center',
@@ -2111,7 +2159,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 14,
-    color: '#526177',
+    color: theme.textSecondary,
     fontSize: 15,
     fontWeight: '600',
   },
@@ -2119,7 +2167,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 253, 248, 0.82)',
+    backgroundColor: theme.surfaceOverlay,
     paddingHorizontal: 24,
     zIndex: 5,
   },
@@ -2127,11 +2175,11 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 360,
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.94)',
+    backgroundColor: theme.surfaceOverlayCard,
     borderRadius: 28,
     paddingHorizontal: 24,
     paddingVertical: 28,
-    shadowColor: '#20304a',
+    shadowColor: theme.shadow,
     shadowOpacity: 0.1,
     shadowRadius: 20,
     shadowOffset: { width: 0, height: 10 },
@@ -2139,33 +2187,33 @@ const styles = StyleSheet.create({
   },
   refreshOverlayTitle: {
     marginTop: 16,
-    color: '#152033',
+    color: theme.textPrimary,
     fontSize: 20,
     fontWeight: '800',
     textAlign: 'center',
   },
   refreshOverlayText: {
     marginTop: 10,
-    color: '#526177',
+    color: theme.textSecondary,
     fontSize: 15,
     lineHeight: 22,
     fontWeight: '600',
     textAlign: 'center',
   },
   errorCard: {
-    backgroundColor: '#eef8f5',
+    backgroundColor: theme.surfaceError,
     borderRadius: 24,
     padding: 18,
     marginTop: 14,
   },
   errorTitle: {
-    color: '#166a5a',
+    color: theme.accentWarm,
     fontSize: 16,
     fontWeight: '800',
     marginBottom: 6,
   },
   errorText: {
-    color: '#2c6f63',
+    color: theme.textPrimary,
     lineHeight: 22,
   },
   storyList: {
@@ -2173,10 +2221,10 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   storyCard: {
-    backgroundColor: 'rgba(255,255,255,0.9)',
+    backgroundColor: theme.surfaceSecondary,
     borderRadius: 24,
     overflow: 'hidden',
-    shadowColor: '#24324a',
+    shadowColor: theme.shadow,
     shadowOpacity: 0.08,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 10 },
@@ -2184,18 +2232,18 @@ const styles = StyleSheet.create({
   },
   storyVisualFallback: {
     minHeight: 130,
-    backgroundColor: '#172235',
+    backgroundColor: theme.surfaceHeader,
     padding: 18,
     justifyContent: 'space-between',
   },
   storyVisualHeadline: {
-    color: '#ffffff',
+    color: theme.textOnDark,
     fontSize: 22,
     fontWeight: '800',
     lineHeight: 28,
   },
   storyVisualSource: {
-    color: '#93e2d2',
+    color: theme.textMutedOnDark,
     fontSize: 13,
     fontWeight: '800',
     textTransform: 'uppercase',
@@ -2210,18 +2258,18 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   storyCategory: {
-    color: '#1da88d',
+    color: theme.accentPrimary,
     fontSize: 13,
     fontWeight: '800',
   },
   storyTime: {
-    color: '#6d7a8d',
+    color: theme.textSecondary,
     fontSize: 12,
     fontWeight: '600',
   },
   scoreBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: '#e6f7f3',
+    backgroundColor: theme.surfaceBadge,
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -2229,48 +2277,48 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   scoreBadgeLabel: {
-    color: '#2e7b69',
+    color: theme.accentSecondary,
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginBottom: 2,
   },
   scoreBadgeText: {
-    color: '#0f5c4d',
+    color: theme.textPrimary,
     fontSize: 14,
     fontWeight: '800',
   },
   loadMoreButton: {
     marginTop: 4,
-    backgroundColor: '#1da88d',
+    backgroundColor: theme.accentPrimary,
     borderRadius: 20,
     alignItems: 'center',
     paddingVertical: 16,
     paddingHorizontal: 18,
   },
   loadMoreButtonText: {
-    color: '#ffffff',
+    color: theme.textOnDark,
     fontSize: 15,
     fontWeight: '800',
   },
   storyDescription: {
-    color: '#4f5f74',
+    color: theme.textSecondary,
     fontSize: 15,
     lineHeight: 22,
     marginBottom: 0,
   },
   storyFooter: {
-    color: '#7a8798',
+    color: theme.textSecondary,
     fontSize: 13,
     fontWeight: '600',
   },
   modalScreen: {
     flex: 1,
-    backgroundColor: '#fffaf5',
+    backgroundColor: theme.surfaceReader,
   },
   readerScreen: {
     flex: 1,
-    backgroundColor: '#fffaf5',
+    backgroundColor: theme.surfaceReader,
   },
   readerHeader: {
     flexDirection: 'row',
@@ -2280,15 +2328,15 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#d7deea',
-    backgroundColor: '#fffaf5',
+    borderBottomColor: theme.borderSoft,
+    backgroundColor: theme.surfaceReader,
   },
   readerHeaderText: {
     flex: 1,
     paddingRight: 12,
   },
   readerEyebrow: {
-    color: '#6b7a8d',
+    color: theme.accentSecondary,
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -2296,24 +2344,24 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   readerTitle: {
-    color: '#172235',
+    color: theme.textPrimary,
     fontSize: 18,
     fontWeight: '800',
   },
   readerSubtitle: {
-    color: '#4f5f74',
+    color: theme.textSecondary,
     fontSize: 13,
     lineHeight: 18,
     marginTop: 4,
   },
   readerCloseButton: {
-    backgroundColor: '#172235',
+    backgroundColor: theme.accentPrimary,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
   readerCloseButtonText: {
-    color: '#ffffff',
+    color: theme.textOnDark,
     fontWeight: '800',
   },
   readerMetaBar: {
@@ -2321,22 +2369,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 10,
-    backgroundColor: '#eef4fb',
+    backgroundColor: theme.surfaceReaderMeta,
     gap: 8,
   },
   readerMetaText: {
-    color: '#526177',
+    color: theme.textPrimary,
     fontSize: 12,
     fontWeight: '700',
   },
   readerMetaDot: {
-    color: '#8b97a9',
+    color: theme.accentWarm,
     fontSize: 12,
     fontWeight: '700',
   },
   readerWebView: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.surfaceReaderWeb,
   },
   readerLoadingOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -2344,10 +2392,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
-    backgroundColor: 'rgba(255,250,245,0.95)',
+    backgroundColor: alpha(theme.surfaceReader, 0.95),
   },
   readerLoadingText: {
-    color: '#526177',
+    color: theme.textSecondary,
     fontSize: 15,
     fontWeight: '600',
   },
