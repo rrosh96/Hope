@@ -2,11 +2,15 @@ import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
+import { useFonts } from 'expo-font';
 import { XMLParser } from 'fast-xml-parser';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   SafeAreaView,
@@ -14,7 +18,9 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 import { WebView } from 'react-native-webview';
 import {
   buildCategoryFeedUrls,
@@ -325,6 +331,315 @@ const storiesCacheTtlMs = 5 * 60 * 1000;
 const metricsHistoryLimit = 20;
 const googleSheetsLogUrl =
   'https://script.google.com/macros/s/AKfycbyW1auT3ZLBD6mrwSqX8j6rB_8k-bMwsxeXog4cdgQbqTNxc8GYccETrYVkSeYoBGQb/exec';
+
+const SPLASH_ARTBOARD_W = 402;
+const SPLASH_ARTBOARD_H = 874;
+const SPLASH_CORNER_RADIUS = 20;
+const SPLASH_TEAL = '#006E78';
+const SPLASH_HEADLINE_TOP = 176;
+const SPLASH_HEADLINE_LEFT = 73;
+const SPLASH_HEADLINE_W = 255;
+const SPLASH_HEADLINE_SIZE = 19.5;
+const SPLASH_HEADLINE_LINE_HEIGHT = 27;
+// Figma/CSS uses a wide teal block; visually it reads as the top of a huge circle.
+// We model it as a full circle clipped by the artboard so the top edge is a smooth arc.
+// Keep the orb below the artboard midpoint so the face sits in the bottom half of the splash.
+const SPLASH_ARTBOARD_MID = SPLASH_ARTBOARD_H / 2;
+const SPLASH_ORB_DIAMETER = 900;
+const SPLASH_ORB_LEFT = (SPLASH_ARTBOARD_W - SPLASH_ORB_DIAMETER) / 2;
+const SPLASH_ORB_TOP = SPLASH_ARTBOARD_MID + 20;
+const SPLASH_EYE_SIZE = 15;
+const SPLASH_EYE_LEFT = 152;
+const SPLASH_EYE_RIGHT = 221;
+const SPLASH_EYE_TOP = SPLASH_ORB_TOP + 110;
+const SPLASH_MOUTH_LEFT = 164.5;
+const SPLASH_MOUTH_TOP = SPLASH_EYE_TOP + 36.5;
+const SPLASH_MOUTH_W = 61;
+const SPLASH_MOUTH_H = 20;
+const SPLASH_MOUTH_STROKE = 4;
+const SPLASH_MOUTH_CY_REST = 13.5;
+const SPLASH_MOUTH_CY_PEAK = 16.8;
+
+function ReferenceSplashArtboard() {
+  const breathPhase = useRef(new Animated.Value(0)).current;
+  const eyeDriftX = useRef(new Animated.Value(-2)).current;
+  const blinkAnim = useRef(new Animated.Value(1)).current;
+  const mouthMorph = useRef(new Animated.Value(0)).current;
+  const [mouthPathD, setMouthPathD] = useState(
+    `M 2 7 Q 30.5 ${SPLASH_MOUTH_CY_REST} 59 7`,
+  );
+
+  useEffect(() => {
+    const breathLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(breathPhase, {
+          toValue: 1,
+          duration: 1000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(breathPhase, {
+          toValue: 0,
+          duration: 1000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    const eyeDriftLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(eyeDriftX, {
+          toValue: 2,
+          duration: 2000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(eyeDriftX, {
+          toValue: -2,
+          duration: 2000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    const mouthMorphLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(mouthMorph, {
+          toValue: 1,
+          duration: 1500,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: false,
+        }),
+        Animated.timing(mouthMorph, {
+          toValue: 0,
+          duration: 1500,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: false,
+        }),
+      ]),
+    );
+
+    const blinkLoop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(2000),
+        Animated.timing(blinkAnim, {
+          toValue: 0.1,
+          duration: 100,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(blinkAnim, {
+          toValue: 1,
+          duration: 100,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.delay(2600),
+        Animated.timing(blinkAnim, {
+          toValue: 0.1,
+          duration: 100,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(blinkAnim, {
+          toValue: 1,
+          duration: 100,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    const mouthMorphId = mouthMorph.addListener(({ value }) => {
+      const t = value <= 0.5 ? value * 2 : (1 - value) * 2;
+      const cy = SPLASH_MOUTH_CY_REST + (SPLASH_MOUTH_CY_PEAK - SPLASH_MOUTH_CY_REST) * t;
+      setMouthPathD(`M 2 7 Q 30.5 ${cy} 59 7`);
+    });
+
+    breathLoop.start();
+    eyeDriftLoop.start();
+    mouthMorphLoop.start();
+    blinkLoop.start();
+
+    return () => {
+      breathLoop.stop();
+      eyeDriftLoop.stop();
+      mouthMorphLoop.stop();
+      blinkLoop.stop();
+      mouthMorph.removeListener(mouthMorphId);
+    };
+  }, [blinkAnim, breathPhase, eyeDriftX, mouthMorph]);
+
+  const orbTranslateY = breathPhase.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -5],
+  });
+  const mouthTranslateY = breathPhase.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 2],
+  });
+
+  return (
+    <View style={referenceSplashStyles.artboard}>
+      <Text style={referenceSplashStyles.headline}>Pulling in good news{'\n'}for you</Text>
+
+      <Animated.View style={{ transform: [{ translateY: orbTranslateY }] }}>
+        <Animated.View style={referenceSplashStyles.tealOrb}>
+          <Animated.View
+            style={{
+              position: 'absolute',
+              left: SPLASH_EYE_LEFT - SPLASH_ORB_LEFT,
+              top: SPLASH_EYE_TOP - SPLASH_ORB_TOP,
+              width: SPLASH_EYE_SIZE,
+              height: SPLASH_EYE_SIZE,
+              transform: [{ translateX: eyeDriftX }],
+            }}
+          >
+            <Animated.View
+              style={{
+                width: SPLASH_EYE_SIZE,
+                height: SPLASH_EYE_SIZE,
+                borderRadius: SPLASH_EYE_SIZE / 2,
+                backgroundColor: '#FFFFFF',
+                transform: [{ scaleY: blinkAnim }],
+              }}
+            />
+          </Animated.View>
+          <Animated.View
+            style={{
+              position: 'absolute',
+              left: SPLASH_EYE_RIGHT - SPLASH_ORB_LEFT,
+              top: SPLASH_EYE_TOP - SPLASH_ORB_TOP,
+              width: SPLASH_EYE_SIZE,
+              height: SPLASH_EYE_SIZE,
+              transform: [{ translateX: eyeDriftX }],
+            }}
+          >
+            <Animated.View
+              style={{
+                width: SPLASH_EYE_SIZE,
+                height: SPLASH_EYE_SIZE,
+                borderRadius: SPLASH_EYE_SIZE / 2,
+                backgroundColor: '#FFFFFF',
+                transform: [{ scaleY: blinkAnim }],
+              }}
+            />
+          </Animated.View>
+
+          <Animated.View
+            style={[
+              referenceSplashStyles.mouthHost,
+              {
+                left: SPLASH_MOUTH_LEFT - SPLASH_ORB_LEFT,
+                top: SPLASH_MOUTH_TOP - SPLASH_ORB_TOP,
+                transform: [{ translateY: mouthTranslateY }],
+              },
+            ]}
+          >
+            <Svg width={SPLASH_MOUTH_W} height={SPLASH_MOUTH_H} viewBox={`0 0 ${SPLASH_MOUTH_W} ${SPLASH_MOUTH_H}`}>
+              <Path
+                d={mouthPathD}
+                stroke="#FFFFFF"
+                strokeWidth={SPLASH_MOUTH_STROKE}
+                strokeLinecap="round"
+                fill="none"
+              />
+            </Svg>
+          </Animated.View>
+        </Animated.View>
+      </Animated.View>
+    </View>
+  );
+}
+
+function ReferenceSplashOverlay({ fontsReady }: { fontsReady: boolean }) {
+  const { width, height } = useWindowDimensions();
+  const coverScale = Math.max(width / SPLASH_ARTBOARD_W, height / SPLASH_ARTBOARD_H);
+  const offsetX = (width - SPLASH_ARTBOARD_W * coverScale) / 2;
+  const offsetY = (height - SPLASH_ARTBOARD_H * coverScale) / 2;
+
+  return (
+    <View style={referenceSplashStyles.overlayRoot} pointerEvents="auto">
+      {!fontsReady ? (
+        <View style={referenceSplashStyles.fontFallback}>
+          <ActivityIndicator size="large" color={SPLASH_TEAL} />
+        </View>
+      ) : (
+        <Animated.View
+          style={[
+            referenceSplashStyles.overlayCard,
+            {
+              width: SPLASH_ARTBOARD_W,
+              height: SPLASH_ARTBOARD_H,
+              left: offsetX,
+              top: offsetY,
+              transform: [{ scale: coverScale }],
+            },
+          ]}
+        >
+          <ReferenceSplashArtboard />
+        </Animated.View>
+      )}
+    </View>
+  );
+}
+
+const referenceSplashStyles = StyleSheet.create({
+  overlayRoot: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#FFFFFF',
+    zIndex: 50,
+  },
+  overlayCard: {
+    position: 'absolute',
+    borderRadius: SPLASH_CORNER_RADIUS,
+    overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
+  },
+  fontFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  artboard: {
+    width: SPLASH_ARTBOARD_W,
+    height: SPLASH_ARTBOARD_H,
+    backgroundColor: '#FFFFFF',
+  },
+  headline: {
+    position: 'absolute',
+    left: SPLASH_HEADLINE_LEFT,
+    top: SPLASH_HEADLINE_TOP,
+    width: SPLASH_HEADLINE_W,
+    fontSize: SPLASH_HEADLINE_SIZE,
+    lineHeight: SPLASH_HEADLINE_LINE_HEIGHT,
+    fontWeight: '500',
+    color: '#000000',
+    textAlign: 'center',
+    fontFamily: Platform.select({
+      ios: 'AvenirNext-Medium',
+      android: 'HopeSplashSansMedium',
+      default: 'HopeSplashSansMedium',
+    }),
+  },
+  tealOrb: {
+    position: 'absolute',
+    left: SPLASH_ORB_LEFT,
+    top: SPLASH_ORB_TOP,
+    width: SPLASH_ORB_DIAMETER,
+    height: SPLASH_ORB_DIAMETER,
+    borderRadius: SPLASH_ORB_DIAMETER / 2,
+    backgroundColor: SPLASH_TEAL,
+  },
+  mouthHost: {
+    position: 'absolute',
+    width: SPLASH_MOUTH_W,
+    height: SPLASH_MOUTH_H,
+  },
+});
 
 interface CategoryFetchMetrics {
   category: Exclude<NewsCategory, 'All'>;
@@ -1567,6 +1882,11 @@ async function fetchAllStories(
 }
 
 export default function App() {
+  const [fontsLoaded] = useFonts({
+    HopeSplashSansMedium: require('./assets/fonts/Inter-Medium.ttf'),
+  });
+  const splashFontsReady = Platform.OS === 'ios' || fontsLoaded;
+
   const latestLoadId = useRef(0);
   const initialLoadStartedRef = useRef(false);
   const activeCategoryRef = useRef<NewsCategory>('All');
@@ -1875,13 +2195,6 @@ export default function App() {
             })}
           </ScrollView>
 
-          {loading ? (
-            <View style={styles.loadingState}>
-              <ActivityIndicator size="large" color={theme.accentSecondary} />
-              <Text style={styles.loadingText}>Loading live headlines...</Text>
-            </View>
-          ) : null}
-
           {error ? (
             <View style={styles.errorCard}>
               <Text style={styles.errorTitle}>Live feed unavailable</Text>
@@ -1942,17 +2255,7 @@ export default function App() {
           ) : null}
         </ScrollView>
 
-        {refreshing && !loading ? (
-          <View style={styles.refreshOverlay}>
-            <View style={styles.refreshOverlayCard}>
-              <ActivityIndicator size="large" color={theme.accentSecondary} />
-              <Text style={styles.refreshOverlayTitle}>Refreshing good news</Text>
-              <Text style={styles.refreshOverlayText}>
-                Pulling all source pools again for the latest positive stories.
-              </Text>
-            </View>
-          </View>
-        ) : null}
+        {loading || refreshing ? <ReferenceSplashOverlay fontsReady={splashFontsReady} /> : null}
 
         <Modal
           visible={selectedNews !== null}
@@ -2097,53 +2400,6 @@ const styles = StyleSheet.create({
   },
   categoryChipTextActive: {
     color: theme.textOnDark,
-  },
-  loadingState: {
-    alignItems: 'center',
-    paddingVertical: 50,
-  },
-  loadingText: {
-    marginTop: 14,
-    color: theme.textSecondary,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  refreshOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.surfaceOverlay,
-    paddingHorizontal: 24,
-    zIndex: 5,
-  },
-  refreshOverlayCard: {
-    width: '100%',
-    maxWidth: 360,
-    alignItems: 'center',
-    backgroundColor: theme.surfaceOverlayCard,
-    borderRadius: 28,
-    paddingHorizontal: 24,
-    paddingVertical: 28,
-    shadowColor: theme.shadow,
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 4,
-  },
-  refreshOverlayTitle: {
-    marginTop: 16,
-    color: theme.textPrimary,
-    fontSize: 20,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  refreshOverlayText: {
-    marginTop: 10,
-    color: theme.textSecondary,
-    fontSize: 15,
-    lineHeight: 22,
-    fontWeight: '600',
-    textAlign: 'center',
   },
   errorCard: {
     backgroundColor: theme.surfaceError,
