@@ -771,17 +771,6 @@ function rotateArray<T>(items: T[], offset: number) {
   return [...items.slice(normalizedOffset), ...items.slice(0, normalizedOffset)];
 }
 
-function shuffleArray<T>(items: T[]) {
-  const next = [...items];
-
-  for (let index = next.length - 1; index > 0; index -= 1) {
-    const randomIndex = Math.floor(Math.random() * (index + 1));
-    [next[index], next[randomIndex]] = [next[randomIndex], next[index]];
-  }
-
-  return next;
-}
-
 function chunkArray<T>(items: T[], size: number) {
   const chunks: T[][] = [];
 
@@ -1371,7 +1360,11 @@ function mixAllCategoryStories(stories: NewsItem[]) {
     groupedStories.set(story.category, group);
   }
 
-  const categoryOrder = shuffleArray(Array.from(groupedStories.keys()));
+  const categoryOrder = Array.from(groupedStories.keys()).sort((a, b) => {
+    const indexA = categories.indexOf(a);
+    const indexB = categories.indexOf(b);
+    return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB);
+  });
   const mixedStories: NewsItem[] = [];
   let addedInPass = true;
 
@@ -1426,15 +1419,11 @@ function mixStoriesByFreshness(
     localityScore: computeLocalityScore(story, locationContext),
   }));
 
-  const strong = shuffleArray(
-    decoratedStories.filter(({ story }) => story.positiveScore >= 8),
+  const strong = decoratedStories.filter(({ story }) => story.positiveScore >= 8);
+  const solid = decoratedStories.filter(
+    ({ story }) => story.positiveScore >= 5 && story.positiveScore < 8,
   );
-  const solid = shuffleArray(
-    decoratedStories.filter(({ story }) => story.positiveScore >= 5 && story.positiveScore < 8),
-  );
-  const steady = shuffleArray(
-    decoratedStories.filter(({ story }) => story.positiveScore < 5),
-  );
+  const steady = decoratedStories.filter(({ story }) => story.positiveScore < 5);
 
   const qualityBands = [strong, solid, steady];
   const orderedStories = qualityBands.flatMap((band) =>
@@ -1450,9 +1439,13 @@ function mixStoriesByFreshness(
         return right.localityScore - left.localityScore;
       }
 
-      return (
-        new Date(right.story.publishedAt).getTime() - new Date(left.story.publishedAt).getTime()
-      );
+      const dateDiff =
+        new Date(right.story.publishedAt).getTime() - new Date(left.story.publishedAt).getTime();
+      if (dateDiff !== 0) {
+        return dateDiff;
+      }
+
+      return left.story.url.localeCompare(right.story.url);
     }),
   );
 
