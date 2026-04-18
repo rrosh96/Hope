@@ -334,7 +334,10 @@ interface CategoryFetchMetrics {
   successfulFeeds: number;
   failedFeeds: number;
   scannedTiers: Array<NonNullable<FeedSource['tier']>>;
+  mobileBertFreshClassified: number;
+  mobileBertCacheHits: number;
   mobileBertClassified: number;
+  ruleFilteredCount: number;
   ruleClassified: number;
 }
 
@@ -363,6 +366,9 @@ interface RefreshMetrics {
     constructiveRejected: number;
     positivityRejected: number;
     feedErrors: number;
+    ruleFilteredCount: number;
+    mobileBertFreshClassified: number;
+    mobileBertCacheHits: number;
     mobileBertClassified: number;
     ruleClassified: number;
   };
@@ -385,6 +391,7 @@ interface CategoryDiagnostics {
   positivityRejected: number;
   accepted: number;
   constructiveRejected: number;
+  ruleFilteredCount: number;
   cautionPenaltyHits: number;
 }
 
@@ -407,6 +414,7 @@ function createCategoryDiagnostics(): CategoryDiagnostics {
     positivityRejected: 0,
     accepted: 0,
     constructiveRejected: 0,
+    ruleFilteredCount: 0,
     cautionPenaltyHits: 0,
   };
 }
@@ -486,6 +494,7 @@ function mergeDiagnostics(target: DiagnosticsMap, source: DiagnosticsMap) {
     target[category].positivityRejected += source[category].positivityRejected;
     target[category].accepted += source[category].accepted;
     target[category].constructiveRejected += source[category].constructiveRejected;
+    target[category].ruleFilteredCount += source[category].ruleFilteredCount;
     target[category].cautionPenaltyHits += source[category].cautionPenaltyHits;
   }
 }
@@ -631,7 +640,7 @@ function logRefreshMetrics(metrics: RefreshMetrics) {
     `[Hope Metrics] mode=${metrics.mode} cacheUsed=${metrics.cacheUsed} durationMs=${metrics.durationMs} totalAccepted=${metrics.totalAcceptedStories} visiblePool=${metrics.allVisiblePoolCount}`,
   );
   console.info(
-    `[Hope Funnel] fetched=${metrics.funnel.fetched} valid=${metrics.funnel.validBase} source=${metrics.funnel.credibleSource} deduped=${metrics.funnel.deduped} unseen=${metrics.funnel.unseen} matched=${metrics.funnel.categoryMatched} accepted=${metrics.funnel.accepted} rejected=${metrics.funnel.positivityRejected} mobilebert=${metrics.funnel.mobileBertClassified} rule=${metrics.funnel.ruleClassified}`,
+    `[Hope Funnel] fetched=${metrics.funnel.fetched} valid=${metrics.funnel.validBase} source=${metrics.funnel.credibleSource} deduped=${metrics.funnel.deduped} unseen=${metrics.funnel.unseen} matched=${metrics.funnel.categoryMatched} accepted=${metrics.funnel.accepted} rejected=${metrics.funnel.positivityRejected} ruleFiltered=${metrics.funnel.ruleFilteredCount} mobilebertFresh=${metrics.funnel.mobileBertFreshClassified} mobilebertCacheHits=${metrics.funnel.mobileBertCacheHits} mobilebertTotal=${metrics.funnel.mobileBertClassified} ruleClassifier=${metrics.funnel.ruleClassified}`,
   );
   console.info(`[Hope Categories] ${categorySummary}`);
 }
@@ -655,11 +664,11 @@ async function postRefreshMetricsToGoogleSheets(metrics: RefreshMetrics) {
   const feedsAttempted = metrics.categoryMetrics.reduce((total, entry) => total + entry.attemptedFeeds, 0);
   const feedsSucceeded = metrics.categoryMetrics.reduce((total, entry) => total + entry.successfulFeeds, 0);
   const feedsFailed = metrics.categoryMetrics.reduce((total, entry) => total + entry.failedFeeds, 0);
-  const totalClassified = metrics.funnel.mobileBertClassified;
+  const totalClassified = metrics.funnel.mobileBertClassified + metrics.funnel.ruleClassified;
   const mobilebertPercent =
     totalClassified > 0 ? Number(((metrics.funnel.mobileBertClassified / totalClassified) * 100).toFixed(2)) : 0;
-  const normalizedRuleClassified = 0;
-  const rulePercent = 0;
+  const rulePercent =
+    totalClassified > 0 ? Number(((metrics.funnel.ruleClassified / totalClassified) * 100).toFixed(2)) : 0;
 
   try {
     await fetch(googleSheetsLogUrl, {
@@ -668,6 +677,8 @@ async function postRefreshMetricsToGoogleSheets(metrics: RefreshMetrics) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
+        target_sheet: 'Hope_Funnel_V2',
+        schema_version: 2,
         timestamp: `${timestampIst} IST`,
         mode: metrics.mode,
         location_label: metrics.locationLabel,
@@ -693,9 +704,12 @@ async function postRefreshMetricsToGoogleSheets(metrics: RefreshMetrics) {
         category_rejected: metrics.funnel.categoryRejected,
         constructive_rejected: metrics.funnel.constructiveRejected,
         positivity_rejected: metrics.funnel.positivityRejected,
+        rule_filtered_count: metrics.funnel.ruleFilteredCount,
         feed_errors: metrics.funnel.feedErrors,
+        mobilebert_fresh_classified: metrics.funnel.mobileBertFreshClassified,
+        mobilebert_cache_hits: metrics.funnel.mobileBertCacheHits,
         mobilebert_classified: metrics.funnel.mobileBertClassified,
-        rule_classified: normalizedRuleClassified,
+        rule_classified: metrics.funnel.ruleClassified,
         mobilebert_percent: mobilebertPercent,
         rule_percent: rulePercent,
         category_metrics_json: metrics.categoryMetrics,
@@ -1315,7 +1329,10 @@ async function fetchAllStories(
       let attemptedFeeds = 0;
       let successfulFeeds = 0;
       let failedFeeds = 0;
+      let mobileBertFreshClassified = 0;
+      let mobileBertCacheHits = 0;
       let mobileBertClassified = 0;
+      let ruleFilteredCount = 0;
       const ruleClassified = 0;
 
       for (const tier of tiers) {
@@ -1391,6 +1408,9 @@ async function fetchAllStories(
 
               const safetyResult = passesHardSafety(item);
               if (!safetyResult.accepted) {
+                categoryDiagnostics[storyCategory].ruleFilteredCount += 1;
+                categoryDiagnostics.All.ruleFilteredCount += 1;
+                ruleFilteredCount += 1;
                 categoryDiagnostics[storyCategory].positivityRejected += 1;
                 categoryDiagnostics.All.positivityRejected += 1;
                 continue;
@@ -1407,6 +1427,8 @@ async function fetchAllStories(
                   safeCandidates,
                 );
                 semanticResults = classificationResult.results;
+                mobileBertFreshClassified += classificationResult.freshClassified;
+                mobileBertCacheHits += classificationResult.cacheHits;
                 mobileBertClassified += classificationResult.cacheHits + classificationResult.freshClassified;
               } catch {
                 semanticResults = new Map();
@@ -1464,7 +1486,10 @@ async function fetchAllStories(
           successfulFeeds,
           failedFeeds,
           scannedTiers: Array.from(scannedTiers),
+          mobileBertFreshClassified,
+          mobileBertCacheHits,
           mobileBertClassified,
+          ruleFilteredCount,
           ruleClassified,
         } satisfies CategoryFetchMetrics,
       };
@@ -1518,6 +1543,15 @@ async function fetchAllStories(
         constructiveRejected: diagnostics.All.constructiveRejected,
         positivityRejected: diagnostics.All.positivityRejected,
         feedErrors: diagnostics.All.feedErrors,
+        ruleFilteredCount: diagnostics.All.ruleFilteredCount,
+        mobileBertFreshClassified: categoryResults.reduce(
+          (total, result) => total + result.metrics.mobileBertFreshClassified,
+          0,
+        ),
+        mobileBertCacheHits: categoryResults.reduce(
+          (total, result) => total + result.metrics.mobileBertCacheHits,
+          0,
+        ),
         mobileBertClassified: categoryResults.reduce(
           (total, result) => total + result.metrics.mobileBertClassified,
           0,
@@ -1666,6 +1700,9 @@ export default function App() {
                 constructiveRejected: cachedDiagnostics.All.constructiveRejected,
                 positivityRejected: cachedDiagnostics.All.positivityRejected,
                 feedErrors: cachedDiagnostics.All.feedErrors,
+                ruleFilteredCount: cachedDiagnostics.All.ruleFilteredCount,
+                mobileBertFreshClassified: 0,
+                mobileBertCacheHits: 0,
                 mobileBertClassified: 0,
                 ruleClassified: 0,
               },
@@ -1703,9 +1740,7 @@ export default function App() {
         } satisfies RefreshMetrics;
         void appendRefreshMetrics(metrics);
         logRefreshMetrics(metrics);
-        if (!shouldReuseCache) {
-          void postRefreshMetricsToGoogleSheets(metrics);
-        }
+        void postRefreshMetricsToGoogleSheets(metrics);
         setLastUpdatedLabel(new Date(updatedTimestamp).toLocaleTimeString([], {
           hour: 'numeric',
           minute: '2-digit',
