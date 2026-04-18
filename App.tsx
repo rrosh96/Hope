@@ -24,6 +24,10 @@ import {
   type NewsCategory,
   type NewsItem,
 } from './src/app/data/mockNews';
+import {
+  classifyStoriesWithMobileBert,
+  type MobileBertClassificationResult,
+} from './src/app/ml/mobilebertClassifier';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -96,87 +100,6 @@ const htmlEntityMap: Record<string, string> = {
   '&#39;': "'",
 };
 
-const positiveSignals = [
-  'breakthrough',
-  'recovery',
-  'recover',
-  'improve',
-  'improved',
-  'improves',
-  'improvement',
-  'hope',
-  'hopeful',
-  'help',
-  'helps',
-  'helping',
-  'support',
-  'supports',
-  'supporting',
-  'rescue',
-  'rescues',
-  'rescued',
-  'save',
-  'saves',
-  'saved',
-  'saving',
-  'cure',
-  'treatment',
-  'healing',
-  'innovation',
-  'innovative',
-  'clean energy',
-  'solar',
-  'conservation',
-  'restore',
-  'restored',
-  'restoring',
-  'growth',
-  'record high',
-  'wins',
-  'won',
-  'achievement',
-  'milestone',
-  'success',
-  'succeeds',
-  'solution',
-  'solutions',
-  'community',
-  'volunteer',
-  'education',
-  'discovery',
-  'discover',
-  'progress',
-  'promising',
-  'affordable',
-  'access',
-  'expands',
-  'uplift',
-  'good news',
-  'opens',
-  'launches',
-];
-
-const humanBenefitSignals = [
-  'helps',
-  'help',
-  'improves',
-  'improve',
-  'support',
-  'supports',
-  'access',
-  'affordable',
-  'recovery',
-  'restore',
-  'restored',
-  'saves',
-  'saved',
-  'education',
-  'healthcare',
-  'treatment',
-  'community',
-  'jobs',
-];
-
 const negativeSignals = [
   'killed',
   'killing',
@@ -239,35 +162,6 @@ const negativeSignals = [
   'arrest',
   'prison',
   'sentenced',
-];
-
-const softCautionSignals = [
-  'lawsuit',
-  'warning',
-  'concern',
-  'concerns',
-  'decline',
-  'slowdown',
-  'pressure',
-  'pressures',
-  'challenge',
-  'challenges',
-  'risk',
-  'risks',
-  'probe',
-  'investigation',
-];
-
-const vagueNeutralSignals = [
-  'announces',
-  'announcement',
-  'says',
-  'report says',
-  'speaks',
-  'talks',
-  'update',
-  'updates',
-  'latest on',
 ];
 
 const clickbaitSignals = [
@@ -335,24 +229,6 @@ const publisherNameMap: Record<string, string> = {
   'washingtonpost.com': 'The Washington Post',
   'yesmagazine.org': 'YES! Magazine',
 };
-
-const trustedSourceBonusNames = [
-  'reuters',
-  'bbc',
-  'npr',
-  'who',
-  'science daily',
-  'nature',
-  'phys org',
-  'new scientist',
-  'mit technology review',
-  'ars technica',
-  'techcrunch',
-  'espn',
-  'positive news',
-  'good news network',
-  'the better india',
-];
 
 const categorySignals: Record<NewsCategory, string[]> = {
   All: [],
@@ -431,82 +307,6 @@ const categorySignals: Record<NewsCategory, string[]> = {
   ],
 };
 
-const categoryConstructiveSignals: Record<NewsCategory, string[]> = {
-  All: [],
-  World: [
-    'humanitarian',
-    'peace talks',
-    'aid',
-    'rebuild',
-    'restoration',
-    'cooperation',
-    'development',
-    'relief',
-    'clean water',
-    'food security',
-  ],
-  Business: [
-    'hiring',
-    'expansion',
-    'new jobs',
-    'small business',
-    'startup success',
-    'investment',
-    'funding',
-    'profit growth',
-    'affordable',
-    'local business',
-  ],
-  Technology: [
-    'launch',
-    'rollout',
-    'open source',
-    'new tool',
-    'new app',
-    'helps doctors',
-    'helps students',
-    'faster',
-    'safer',
-    'efficient',
-    'accessibility',
-  ],
-  Science: [
-    'study finds',
-    'discovery',
-    'trial success',
-    'treatment works',
-    'conservation',
-    'emissions drop',
-    'new evidence',
-    'researchers develop',
-    'breakthrough',
-  ],
-  Sports: [
-    'win',
-    'comeback',
-    'championship',
-    'medal',
-    'qualify',
-    'sportsmanship',
-    'charity match',
-    'youth sports',
-    'community sports',
-    'para sport',
-  ],
-  Health: [
-    'recovery',
-    'treatment success',
-    'improved access',
-    'reduced risk',
-    'hospital opens',
-    'vaccination',
-    'public health success',
-    'lives saved',
-    'wellness',
-  ],
-};
-
-const minimumPositiveScore = 2;
 const targetStoryCount = 150;
 const categoryTargetStoryCount = 20;
 const feedParallelism = 6;
@@ -523,6 +323,8 @@ const metricsHistoryStorageKey = 'hope:metrics-history';
 const seenStoryCooldownMs = 3 * 24 * 60 * 60 * 1000;
 const storiesCacheTtlMs = 5 * 60 * 1000;
 const metricsHistoryLimit = 20;
+const googleSheetsLogUrl =
+  'https://script.google.com/macros/s/AKfycbyW1auT3ZLBD6mrwSqX8j6rB_8k-bMwsxeXog4cdgQbqTNxc8GYccETrYVkSeYoBGQb/exec';
 
 interface CategoryFetchMetrics {
   category: Exclude<NewsCategory, 'All'>;
@@ -532,6 +334,8 @@ interface CategoryFetchMetrics {
   successfulFeeds: number;
   failedFeeds: number;
   scannedTiers: Array<NonNullable<FeedSource['tier']>>;
+  mobileBertClassified: number;
+  ruleClassified: number;
 }
 
 interface RefreshMetrics {
@@ -542,6 +346,7 @@ interface RefreshMetrics {
   locationLabel: string;
   totalAcceptedStories: number;
   allVisiblePoolCount: number;
+  shownStoriesCount: number;
   funnel: {
     fetched: number;
     validBase: number;
@@ -558,6 +363,8 @@ interface RefreshMetrics {
     constructiveRejected: number;
     positivityRejected: number;
     feedErrors: number;
+    mobileBertClassified: number;
+    ruleClassified: number;
   };
   categoryMetrics: CategoryFetchMetrics[];
 }
@@ -824,9 +631,79 @@ function logRefreshMetrics(metrics: RefreshMetrics) {
     `[Hope Metrics] mode=${metrics.mode} cacheUsed=${metrics.cacheUsed} durationMs=${metrics.durationMs} totalAccepted=${metrics.totalAcceptedStories} visiblePool=${metrics.allVisiblePoolCount}`,
   );
   console.info(
-    `[Hope Funnel] fetched=${metrics.funnel.fetched} valid=${metrics.funnel.validBase} source=${metrics.funnel.credibleSource} deduped=${metrics.funnel.deduped} unseen=${metrics.funnel.unseen} matched=${metrics.funnel.categoryMatched} accepted=${metrics.funnel.accepted} rejected=${metrics.funnel.positivityRejected}`,
+    `[Hope Funnel] fetched=${metrics.funnel.fetched} valid=${metrics.funnel.validBase} source=${metrics.funnel.credibleSource} deduped=${metrics.funnel.deduped} unseen=${metrics.funnel.unseen} matched=${metrics.funnel.categoryMatched} accepted=${metrics.funnel.accepted} rejected=${metrics.funnel.positivityRejected} mobilebert=${metrics.funnel.mobileBertClassified} rule=${metrics.funnel.ruleClassified}`,
   );
   console.info(`[Hope Categories] ${categorySummary}`);
+}
+
+async function postRefreshMetricsToGoogleSheets(metrics: RefreshMetrics) {
+  if (!googleSheetsLogUrl) {
+    return;
+  }
+
+  const timestampIst = new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(new Date(metrics.timestamp));
+
+  const feedsAttempted = metrics.categoryMetrics.reduce((total, entry) => total + entry.attemptedFeeds, 0);
+  const feedsSucceeded = metrics.categoryMetrics.reduce((total, entry) => total + entry.successfulFeeds, 0);
+  const feedsFailed = metrics.categoryMetrics.reduce((total, entry) => total + entry.failedFeeds, 0);
+  const totalClassified = metrics.funnel.mobileBertClassified;
+  const mobilebertPercent =
+    totalClassified > 0 ? Number(((metrics.funnel.mobileBertClassified / totalClassified) * 100).toFixed(2)) : 0;
+  const normalizedRuleClassified = 0;
+  const rulePercent = 0;
+
+  try {
+    await fetch(googleSheetsLogUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        timestamp: `${timestampIst} IST`,
+        mode: metrics.mode,
+        location_label: metrics.locationLabel,
+        cache_used: metrics.cacheUsed,
+        duration_ms: metrics.durationMs,
+        total_accepted_stories: metrics.totalAcceptedStories,
+        visible_pool_count: metrics.allVisiblePoolCount,
+        shown_stories_count: metrics.shownStoriesCount,
+        feeds_attempted: feedsAttempted,
+        feeds_succeeded: feedsSucceeded,
+        feeds_failed: feedsFailed,
+        fetched: metrics.funnel.fetched,
+        valid_base: metrics.funnel.validBase,
+        credible_source: metrics.funnel.credibleSource,
+        deduped: metrics.funnel.deduped,
+        unseen: metrics.funnel.unseen,
+        category_matched: metrics.funnel.categoryMatched,
+        accepted: metrics.funnel.accepted,
+        invalid_rejected: metrics.funnel.invalidRejected,
+        source_rejected: metrics.funnel.sourceRejected,
+        duplicate_rejected: metrics.funnel.duplicateRejected,
+        seen_rejected: metrics.funnel.seenRejected,
+        category_rejected: metrics.funnel.categoryRejected,
+        constructive_rejected: metrics.funnel.constructiveRejected,
+        positivity_rejected: metrics.funnel.positivityRejected,
+        feed_errors: metrics.funnel.feedErrors,
+        mobilebert_classified: metrics.funnel.mobileBertClassified,
+        rule_classified: normalizedRuleClassified,
+        mobilebert_percent: mobilebertPercent,
+        rule_percent: rulePercent,
+        category_metrics_json: metrics.categoryMetrics,
+      }),
+    });
+  } catch {
+    // Ignore logging failures so feed UX is never blocked by analytics.
+  }
 }
 
 function isReadableIntro(text: string) {
@@ -887,49 +764,6 @@ function isLikelyClickbait(title: string) {
   });
 
   return uppercaseWords.length >= 2;
-}
-
-function scoreStory(item: NewsItem) {
-  const combinedText = `${item.title} ${item.description} ${item.source}`.toLowerCase();
-  const baseConstructiveHits = countKeywordHits(combinedText, positiveSignals);
-  const categoryConstructiveHits = countKeywordHits(
-    combinedText,
-    categoryConstructiveSignals[item.category] ?? [],
-  );
-  const humanBenefitHits = countKeywordHits(combinedText, humanBenefitSignals);
-  const softCautionHits = countKeywordHits(combinedText, softCautionSignals);
-  const vagueNeutralHits = countKeywordHits(combinedText, vagueNeutralSignals);
-  const sourceName = normalizeSourceName(item.source).toLowerCase();
-  const trustedSourceBonus = trustedSourceBonusNames.some((name) => sourceName.includes(name))
-    ? 1
-    : 0;
-
-  let score = 0;
-  score += Math.min(baseConstructiveHits, 3) * 2;
-  score += Math.min(categoryConstructiveHits, 2) * 2;
-  score += Math.min(humanBenefitHits, 2) * 2;
-  score += trustedSourceBonus;
-  score -= Math.min(softCautionHits, 2) * 2;
-
-  if (baseConstructiveHits + categoryConstructiveHits === 0 && vagueNeutralHits > 0) {
-    score -= 2;
-  }
-
-  const hasConstructiveSignal = baseConstructiveHits + categoryConstructiveHits + humanBenefitHits > 0;
-  if (!hasConstructiveSignal) {
-    return { accepted: false, score: 0, reason: 'too_neutral', softCautionHits };
-  }
-
-  if (score < minimumPositiveScore + 1) {
-    return { accepted: false, score, reason: 'low_impact', softCautionHits };
-  }
-
-  return {
-    accepted: true,
-    score: Math.min(maxScore, Math.max(1, score)),
-    reason: 'constructive',
-    softCautionHits,
-  };
 }
 
 function passesHardSafety(item: NewsItem) {
@@ -1404,7 +1238,7 @@ async function fetchFeedUrl(feed: FeedSource, category: NewsCategory) {
       const fallbackSource = deriveSourceFromUrl(url);
       const trustedSource = hasCredibleSource(source) ? source : fallbackSource;
 
-      const story = {
+      const story: NewsItem = {
         id:
           typeof item.guid === 'string' && item.guid.trim()
             ? item.guid.trim()
@@ -1424,8 +1258,9 @@ async function fetchFeedUrl(feed: FeedSource, category: NewsCategory) {
       diagnostics.All.fetched += 1;
 
       return story;
-    })
-    .filter((item) => {
+    });
+
+  const filteredNewsItems: NewsItem[] = newsItems.filter((item) => {
       const storyCategory = item.category;
 
       if (!item.title || !item.url || !isWithinLast30Days(item.publishedAt)) {
@@ -1449,7 +1284,10 @@ async function fetchFeedUrl(feed: FeedSource, category: NewsCategory) {
       return true;
     });
 
-  return { newsItems, diagnostics };
+  return {
+    newsItems: filteredNewsItems,
+    diagnostics,
+  };
 }
 
 async function fetchAllStories(
@@ -1477,6 +1315,8 @@ async function fetchAllStories(
       let attemptedFeeds = 0;
       let successfulFeeds = 0;
       let failedFeeds = 0;
+      let mobileBertClassified = 0;
+      const ruleClassified = 0;
 
       for (const tier of tiers) {
         if (acceptedStories.size >= categoryTargetStoryCount) {
@@ -1512,6 +1352,7 @@ async function fetchAllStories(
             successfulFeeds += 1;
             const { newsItems, diagnostics: feedDiagnostics } = settledResult.value;
             mergeDiagnostics(categoryDiagnostics, feedDiagnostics);
+            const safeCandidates: NewsItem[] = [];
 
             for (const item of newsItems) {
               if (acceptedStories.size >= categoryTargetStoryCount) {
@@ -1555,9 +1396,38 @@ async function fetchAllStories(
                 continue;
               }
 
-              const result = scoreStory(item);
-              categoryDiagnostics[storyCategory].cautionPenaltyHits += result.softCautionHits ?? 0;
-              categoryDiagnostics.All.cautionPenaltyHits += result.softCautionHits ?? 0;
+              safeCandidates.push(item);
+            }
+
+            let semanticResults = new Map<string, MobileBertClassificationResult>();
+
+            if (safeCandidates.length > 0) {
+              try {
+                const classificationResult = await classifyStoriesWithMobileBert(
+                  safeCandidates,
+                );
+                semanticResults = classificationResult.results;
+                mobileBertClassified += classificationResult.cacheHits + classificationResult.freshClassified;
+              } catch {
+                semanticResults = new Map();
+              }
+            }
+
+            for (const item of safeCandidates) {
+              if (acceptedStories.size >= categoryTargetStoryCount) {
+                break;
+              }
+
+              const storyCategory = item.category;
+              const result = semanticResults.get(item.url);
+
+              if (!result) {
+                categoryDiagnostics[storyCategory].constructiveRejected += 1;
+                categoryDiagnostics.All.constructiveRejected += 1;
+                categoryDiagnostics[storyCategory].positivityRejected += 1;
+                categoryDiagnostics.All.positivityRejected += 1;
+                continue;
+              }
 
               if (!result.accepted) {
                 categoryDiagnostics[storyCategory].constructiveRejected += 1;
@@ -1594,6 +1464,8 @@ async function fetchAllStories(
           successfulFeeds,
           failedFeeds,
           scannedTiers: Array.from(scannedTiers),
+          mobileBertClassified,
+          ruleClassified,
         } satisfies CategoryFetchMetrics,
       };
     }),
@@ -1629,6 +1501,7 @@ async function fetchAllStories(
         'Global edition',
       totalAcceptedStories: Array.from(allAcceptedStories.values()).length,
       allVisiblePoolCount: selectedStories.length,
+      shownStoriesCount: 0,
       funnel: {
         fetched: diagnostics.All.fetched,
         validBase: diagnostics.All.validBase,
@@ -1645,6 +1518,14 @@ async function fetchAllStories(
         constructiveRejected: diagnostics.All.constructiveRejected,
         positivityRejected: diagnostics.All.positivityRejected,
         feedErrors: diagnostics.All.feedErrors,
+        mobileBertClassified: categoryResults.reduce(
+          (total, result) => total + result.metrics.mobileBertClassified,
+          0,
+        ),
+        ruleClassified: categoryResults.reduce(
+          (total, result) => total + result.metrics.ruleClassified,
+          0,
+        ),
       },
       categoryMetrics: categoryResults.map((result) => result.metrics),
     } satisfies RefreshMetrics,
@@ -1653,6 +1534,9 @@ async function fetchAllStories(
 
 export default function App() {
   const latestLoadId = useRef(0);
+  const initialLoadStartedRef = useRef(false);
+  const activeCategoryRef = useRef<NewsCategory>('All');
+  const locationContextRef = useRef<LocationContext | undefined>(undefined);
   const [activeCategory, setActiveCategory] = useState<NewsCategory>('All');
   const [userLocation, setUserLocation] = useState('Finding your local edition...');
   const [locationContext, setLocationContext] = useState<LocationContext | undefined>(undefined);
@@ -1666,6 +1550,14 @@ export default function App() {
   const [lastUpdatedLabel, setLastUpdatedLabel] = useState('Not updated yet');
   const [seenStories, setSeenStories] = useState<Record<string, number>>({});
   const [, setDiagnostics] = useState<DiagnosticsMap>(createEmptyDiagnostics());
+
+  useEffect(() => {
+    activeCategoryRef.current = activeCategory;
+  }, [activeCategory]);
+
+  useEffect(() => {
+    locationContextRef.current = locationContext;
+  }, [locationContext]);
 
   const detectLocation = useCallback(async () => {
     try {
@@ -1755,11 +1647,12 @@ export default function App() {
                   [nextLocationContext?.city, nextLocationContext?.region].filter(Boolean).join(', ') ||
                   nextLocationContext?.country ||
                   'Global edition',
-                totalAcceptedStories: cached.stories.length,
-                allVisiblePoolCount: cached.stories.length,
-                funnel: {
-                  fetched: cachedDiagnostics.All.fetched,
-                  validBase: cachedDiagnostics.All.validBase,
+              totalAcceptedStories: cached.stories.length,
+              allVisiblePoolCount: cached.stories.length,
+              shownStoriesCount: 0,
+              funnel: {
+                fetched: cachedDiagnostics.All.fetched,
+                validBase: cachedDiagnostics.All.validBase,
                   credibleSource: cachedDiagnostics.All.credibleSource,
                   deduped: cachedDiagnostics.All.deduped,
                   unseen: cachedDiagnostics.All.unseen,
@@ -1770,12 +1663,14 @@ export default function App() {
                   duplicateRejected: cachedDiagnostics.All.duplicateRejected,
                   seenRejected: cachedDiagnostics.All.seenRejected,
                   categoryRejected: cachedDiagnostics.All.categoryRejected,
-                  constructiveRejected: cachedDiagnostics.All.constructiveRejected,
-                  positivityRejected: cachedDiagnostics.All.positivityRejected,
-                  feedErrors: cachedDiagnostics.All.feedErrors,
-                },
-                categoryMetrics: [],
-              } satisfies RefreshMetrics,
+                constructiveRejected: cachedDiagnostics.All.constructiveRejected,
+                positivityRejected: cachedDiagnostics.All.positivityRejected,
+                feedErrors: cachedDiagnostics.All.feedErrors,
+                mobileBertClassified: 0,
+                ruleClassified: 0,
+              },
+              categoryMetrics: [],
+            } satisfies RefreshMetrics,
             }
           : await fetchAllStories(nextLocationContext, visitCount, nextSeenStories);
         const latestStories = fetchedResult.stories;
@@ -1786,6 +1681,11 @@ export default function App() {
           setError('No strongly positive stories from the last 30 days were available right now. Try refresh in a bit.');
         }
         setAllStories(sanitizedStories);
+        const shownStoriesCount = getStoriesForCategory(
+          sanitizeStories(sanitizedStories).filter((story) => !nextSeenStories[story.url]),
+          activeCategoryRef.current,
+          nextLocationContext ?? locationContextRef.current,
+        ).slice(0, initialVisibleStoryCount).length;
         const updatedTimestamp = shouldReuseCache
           ? cached.timestamp
           : await saveStoriesCache(sanitizedStories);
@@ -1799,9 +1699,13 @@ export default function App() {
           durationMs: Date.now() - loadStartedAt,
           totalAcceptedStories: sanitizedStories.length,
           allVisiblePoolCount: sanitizedStories.length,
+          shownStoriesCount,
         } satisfies RefreshMetrics;
         void appendRefreshMetrics(metrics);
         logRefreshMetrics(metrics);
+        if (!shouldReuseCache) {
+          void postRefreshMetricsToGoogleSheets(metrics);
+        }
         setLastUpdatedLabel(new Date(updatedTimestamp).toLocaleTimeString([], {
           hour: 'numeric',
           minute: '2-digit',
@@ -1833,10 +1737,16 @@ export default function App() {
     let cancelled = false;
 
     const loadWithLocation = async () => {
-      try {
-        let nextContext = locationContext;
+      if (initialLoadStartedRef.current) {
+        return;
+      }
 
-        if (!locationContext) {
+      initialLoadStartedRef.current = true;
+
+      try {
+        let nextContext = locationContextRef.current;
+
+        if (!nextContext) {
           nextContext = await detectLocation();
           if (cancelled) {
             return;
@@ -1845,7 +1755,7 @@ export default function App() {
 
         await loadStories('load', nextContext);
       } catch (error) {
-        await loadStories('load', locationContext);
+        await loadStories('load', locationContextRef.current);
       }
     };
 
@@ -1854,7 +1764,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [detectLocation, loadStories, locationContext]);
+  }, [detectLocation, loadStories]);
 
   useEffect(() => {
     setVisibleStoryCount(initialVisibleStoryCount);
