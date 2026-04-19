@@ -4,6 +4,7 @@
   "private": true,
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
+    "hooks:install": "git config core.hooksPath .githooks",
     "start": "expo start",
     "start:tunnel": "expo start --tunnel",
     "ios": "expo run:ios",

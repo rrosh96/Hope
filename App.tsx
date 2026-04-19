@@ -2209,25 +2209,25 @@ export default function App() {
                   }}
                 >
                   <View style={styles.storyVisualFallback}>
-                    <Text style={styles.storyVisualHeadline} numberOfLines={3}>
+                    <Text style={styles.storyVisualHeadline} numberOfLines={2}>
                       {story.title}
                     </Text>
                     <Text style={styles.storyVisualSource}>{story.source}</Text>
                   </View>
 
                   <View style={styles.storyBody}>
-                    <View style={styles.storyMetaRow}>
-                      <Text style={styles.storyCategory}>{story.category}</Text>
-                      <Text style={styles.storyTime}>{story.time}</Text>
-                    </View>
                     <Text style={styles.storyDescription}>{story.description}</Text>
 
-                    <View style={styles.scoreBadge}>
-                      <Text style={styles.scoreBadgeLabel}>Score</Text>
-                      <Text style={styles.scoreBadgeText}>✦ {story.positiveScore}/{maxScore}</Text>
+                    <View style={styles.storyCardFooter}>
+                      <Text style={styles.storyScoreText}>
+                        <Text style={styles.storyScoreIcon}>✦ </Text>
+                        {story.positiveScore}/{maxScore}
+                      </Text>
+                      <Text style={styles.storyMetaRight} numberOfLines={1}>
+                        <Text style={styles.storyCategory}>{story.category}</Text>
+                        <Text style={styles.storyTime}> • {story.time}</Text>
+                      </Text>
                     </View>
-
-                    <Text style={styles.storyFooter}>{story.location}</Text>
                   </View>
                 </Pressable>
               ))}
@@ -2415,6 +2415,7 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   storyCard: {
+    flexDirection: 'column',
     backgroundColor: theme.surfaceSecondary,
     borderRadius: 24,
     overflow: 'hidden',
@@ -2425,10 +2426,10 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   storyVisualFallback: {
-    minHeight: 130,
     backgroundColor: theme.surfaceHeader,
     padding: 18,
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
+    gap: 8,
   },
   storyVisualHeadline: {
     color: theme.textOnDark,
@@ -2445,11 +2446,27 @@ const styles = StyleSheet.create({
   },
   storyBody: {
     padding: 16,
+    gap: 12,
   },
-  storyMetaRow: {
+  storyCardFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    alignItems: 'center',
+  },
+  storyScoreText: {
+    color: theme.textPrimary,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  storyScoreIcon: {
+    color: theme.accentSecondary,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  storyMetaRight: {
+    flex: 1,
+    marginLeft: 12,
+    textAlign: 'right',
   },
   storyCategory: {
     color: theme.accentPrimary,
@@ -2460,27 +2477,6 @@ const styles = StyleSheet.create({
     color: theme.textSecondary,
     fontSize: 12,
     fontWeight: '600',
-  },
-  scoreBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: theme.surfaceBadge,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginTop: 14,
-    marginBottom: 12,
-  },
-  scoreBadgeLabel: {
-    color: theme.accentSecondary,
-    fontSize: 11,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 2,
-  },
-  scoreBadgeText: {
-    color: theme.textPrimary,
-    fontSize: 14,
-    fontWeight: '800',
   },
   loadMoreButton: {
     marginTop: 4,
@@ -2498,13 +2494,7 @@ const styles = StyleSheet.create({
   storyDescription: {
     color: theme.textSecondary,
     fontSize: 15,
-    lineHeight: 22,
-    marginBottom: 0,
-  },
-  storyFooter: {
-    color: theme.textSecondary,
-    fontSize: 13,
-    fontWeight: '600',
+    lineHeight: 24,
   },
   modalScreen: {
     flex: 1,
