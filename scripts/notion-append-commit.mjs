@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 /**
  * Appends the latest commit as a bullet to the Notion page "Hope — git commit timeline".
+ * Each line is written for a reader: date/hash/branch, then "User impact:" with a plain summary
+ * (conventional-commit prefixes like feat:/fix: stripped), plus the first line of the commit body
+ * as "More detail:" when present.
  *
  * Setup (one-time):
  * 1. In Notion: Settings → Connections → Develop or manage integrations → New integration.
@@ -11,6 +14,7 @@
  *    Optional override: NOTION_COMMIT_LOG_PAGE_ID=<uuid> (defaults to scripts/notion-commit-log-config.json).
  * 5. Enable hooks: `npm run hooks:install` (sets `core.hooksPath` to `.githooks`).
  *
+ * Debugging: set NOTION_COMMIT_LOG_VERBOSE=1 to print skip reasons, network errors, and success.
  * Git hooks do not inherit your shell profile; `.env` in the repo root is loaded here so
  * commits from GUI clients still find the token if the file exists.
  *
@@ -23,6 +27,10 @@ import { dirname, join } from 'path';
 import { execSync } from 'child_process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+const verbose =
+  process.env.NOTION_COMMIT_LOG_VERBOSE === '1' ||
+  process.env.NOTION_COMMIT_LOG_VERBOSE === 'true';
 
 function loadDotEnv(repoRoot) {
   const p = join(repoRoot, '.env');
@@ -58,6 +66,11 @@ loadDotEnv(root);
 
 const token = process.env.NOTION_TOKEN;
 if (!token) {
+  if (verbose) {
+    console.error(
+      '[notion-append-commit] Skipping: NOTION_TOKEN not set (add to .env or export; use NOTION_COMMIT_LOG_VERBOSE=1 to see this message).',
+    );
+  }
   process.exit(0);
 }
 
@@ -72,20 +85,50 @@ function git(fmt) {
   }).trim();
 }
 
+/** Strips common conventional-commit prefixes so the line reads as a user-facing summary. */
+function stripConventionalPrefix(subjectLine) {
+  return subjectLine
+    .replace(
+      /^(feat|fix|chore|docs|style|refactor|perf|test|build|ci)(\([^)]*\))?:\s*/i,
+      '',
+    )
+    .trim();
+}
+
+/** First non-empty line of the commit message body (often explains user-visible impact). */
+function firstBodyLine(bodyText) {
+  if (!bodyText) return '';
+  const line = bodyText
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
+  return line ?? '';
+}
+
 const short = git('%h');
 const branch = execSync('git rev-parse --abbrev-ref HEAD', {
   encoding: 'utf8',
   cwd: root,
 }).trim();
 const subject = git('%s');
+const commitBody = execSync('git log -1 --format=%b', {
+  encoding: 'utf8',
+  cwd: root,
+}).trim();
 const date = execSync('git log -1 --format=%cd --date=format:%Y-%m-%d', {
   encoding: 'utf8',
   cwd: root,
 }).trim();
 
-const text = `${date} · ${short} · ${branch} — ${subject}`.slice(0, 1900);
+const userSummary = stripConventionalPrefix(subject) || subject;
+const extraContext = firstBodyLine(commitBody);
+let text = `${date} · ${short} · ${branch} — User impact: ${userSummary}`;
+if (extraContext) {
+  text += ` More detail: ${extraContext}`;
+}
+text = text.slice(0, 1900);
 
-const body = {
+const requestPayload = {
   children: [
     {
       object: 'block',
@@ -97,20 +140,34 @@ const body = {
   ],
 };
 
-const res = await fetch(
-  `https://api.notion.com/v1/blocks/${pageId}/children`,
-  {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Notion-Version': '2022-06-28',
-      'Content-Type': 'application/json',
+let res;
+try {
+  res = await fetch(
+    `https://api.notion.com/v1/blocks/${pageId}/children`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Notion-Version': '2022-06-28',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestPayload),
     },
-    body: JSON.stringify(body),
-  },
-);
+  );
+} catch (err) {
+  console.error(
+    '[notion-append-commit] Network error (offline, DNS, or blocked):',
+    err instanceof Error ? err.message : err,
+  );
+  process.exit(0);
+}
 
 if (!res.ok) {
   const errText = await res.text();
   console.error('[notion-append-commit]', res.status, errText);
+  process.exit(0);
+}
+
+if (verbose) {
+  console.error('[notion-append-commit] Appended commit to Notion page', pageId);
 }

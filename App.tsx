@@ -86,6 +86,40 @@ const theme = {
   shadow: palette.deepBlue,
 };
 
+/** iOS: system Avenir Next. Android/Web: bundled Inter (expo-font keys Inter_400 … Inter_800). */
+const fontSans = {
+  w400: Platform.select({
+    ios: 'AvenirNext-Regular',
+    android: 'Inter_400',
+    web: 'Inter_400',
+    default: 'Inter_400',
+  }),
+  w500: Platform.select({
+    ios: 'AvenirNext-Medium',
+    android: 'Inter_500',
+    web: 'Inter_500',
+    default: 'Inter_500',
+  }),
+  w600: Platform.select({
+    ios: 'AvenirNext-DemiBold',
+    android: 'Inter_600',
+    web: 'Inter_600',
+    default: 'Inter_600',
+  }),
+  w700: Platform.select({
+    ios: 'AvenirNext-Bold',
+    android: 'Inter_700',
+    web: 'Inter_700',
+    default: 'Inter_700',
+  }),
+  w800: Platform.select({
+    ios: 'AvenirNext-Heavy',
+    android: 'Inter_800',
+    web: 'Inter_800',
+    default: 'Inter_800',
+  }),
+};
+
 const htmlEntityMap: Record<string, string> = {
   '&amp;': '&',
   '&lt;': '<',
@@ -616,14 +650,10 @@ const referenceSplashStyles = StyleSheet.create({
     width: SPLASH_HEADLINE_W,
     fontSize: SPLASH_HEADLINE_SIZE,
     lineHeight: SPLASH_HEADLINE_LINE_HEIGHT,
-    fontWeight: '500',
+    fontWeight: 'normal',
     color: '#000000',
     textAlign: 'center',
-    fontFamily: Platform.select({
-      ios: 'AvenirNext-Medium',
-      android: 'HopeSplashSansMedium',
-      default: 'HopeSplashSansMedium',
-    }),
+    fontFamily: fontSans.w500,
   },
   tealOrb: {
     position: 'absolute',
@@ -1876,7 +1906,11 @@ async function fetchAllStories(
 
 export default function App() {
   const [fontsLoaded] = useFonts({
-    HopeSplashSansMedium: require('./assets/fonts/Inter-Medium.ttf'),
+    Inter_400: require('./assets/fonts/Inter-Regular.ttf'),
+    Inter_500: require('./assets/fonts/Inter-Medium.ttf'),
+    Inter_600: require('./assets/fonts/Inter-SemiBold.ttf'),
+    Inter_700: require('./assets/fonts/Inter-Bold.ttf'),
+    Inter_800: require('./assets/fonts/Inter-ExtraBold.ttf'),
   });
   const splashFontsReady = Platform.OS === 'ios' || fontsLoaded;
 
@@ -2331,7 +2365,8 @@ const styles = StyleSheet.create({
   eyebrow: {
     color: theme.accentSecondary,
     fontSize: 13,
-    fontWeight: '700',
+    fontFamily: fontSans.w700,
+    fontWeight: 'normal',
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginBottom: 8,
@@ -2339,19 +2374,23 @@ const styles = StyleSheet.create({
   title: {
     color: theme.textPrimary,
     fontSize: 36,
-    fontWeight: '800',
+    fontFamily: fontSans.w800,
+    fontWeight: 'normal',
     marginBottom: 8,
   },
   subtitle: {
     color: theme.textSecondary,
     fontSize: 16,
     lineHeight: 24,
+    fontFamily: fontSans.w400,
+    fontWeight: 'normal',
     marginBottom: 10,
   },
   lastUpdatedText: {
     color: theme.textSecondary,
     fontSize: 13,
-    fontWeight: '600',
+    fontFamily: fontSans.w600,
+    fontWeight: 'normal',
     marginBottom: 18,
   },
   heroTopRow: {
@@ -2370,7 +2409,8 @@ const styles = StyleSheet.create({
   locationValue: {
     color: theme.textPrimary,
     fontSize: 14,
-    fontWeight: '700',
+    fontFamily: fontSans.w700,
+    fontWeight: 'normal',
   },
   categoryRow: {
     paddingBottom: 8,
@@ -2389,7 +2429,8 @@ const styles = StyleSheet.create({
   categoryChipText: {
     color: theme.textPrimary,
     fontSize: 14,
-    fontWeight: '700',
+    fontFamily: fontSans.w700,
+    fontWeight: 'normal',
   },
   categoryChipTextActive: {
     color: theme.textOnDark,
@@ -2403,12 +2444,15 @@ const styles = StyleSheet.create({
   errorTitle: {
     color: theme.accentWarm,
     fontSize: 16,
-    fontWeight: '800',
+    fontFamily: fontSans.w800,
+    fontWeight: 'normal',
     marginBottom: 6,
   },
   errorText: {
     color: theme.textPrimary,
     lineHeight: 22,
+    fontFamily: fontSans.w400,
+    fontWeight: 'normal',
   },
   storyList: {
     marginTop: 14,
@@ -2434,13 +2478,15 @@ const styles = StyleSheet.create({
   storyVisualHeadline: {
     color: theme.textOnDark,
     fontSize: 22,
-    fontWeight: '800',
+    fontFamily: fontSans.w800,
+    fontWeight: 'normal',
     lineHeight: 28,
   },
   storyVisualSource: {
     color: theme.textMutedOnDark,
     fontSize: 13,
-    fontWeight: '800',
+    fontFamily: fontSans.w800,
+    fontWeight: 'normal',
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
@@ -2456,12 +2502,14 @@ const styles = StyleSheet.create({
   storyScoreText: {
     color: theme.textPrimary,
     fontSize: 14,
-    fontWeight: '800',
+    fontFamily: fontSans.w800,
+    fontWeight: 'normal',
   },
   storyScoreIcon: {
     color: theme.accentSecondary,
     fontSize: 14,
-    fontWeight: '800',
+    fontFamily: fontSans.w800,
+    fontWeight: 'normal',
   },
   storyMetaRight: {
     flex: 1,
@@ -2471,12 +2519,14 @@ const styles = StyleSheet.create({
   storyCategory: {
     color: theme.accentPrimary,
     fontSize: 13,
-    fontWeight: '800',
+    fontFamily: fontSans.w800,
+    fontWeight: 'normal',
   },
   storyTime: {
     color: theme.textSecondary,
     fontSize: 12,
-    fontWeight: '600',
+    fontFamily: fontSans.w600,
+    fontWeight: 'normal',
   },
   loadMoreButton: {
     marginTop: 4,
@@ -2489,12 +2539,15 @@ const styles = StyleSheet.create({
   loadMoreButtonText: {
     color: theme.textOnDark,
     fontSize: 15,
-    fontWeight: '800',
+    fontFamily: fontSans.w800,
+    fontWeight: 'normal',
   },
   storyDescription: {
     color: theme.textSecondary,
     fontSize: 15,
     lineHeight: 24,
+    fontFamily: fontSans.w400,
+    fontWeight: 'normal',
   },
   modalScreen: {
     flex: 1,
@@ -2522,7 +2575,8 @@ const styles = StyleSheet.create({
   readerEyebrow: {
     color: theme.accentSecondary,
     fontSize: 11,
-    fontWeight: '700',
+    fontFamily: fontSans.w700,
+    fontWeight: 'normal',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginBottom: 4,
@@ -2530,12 +2584,15 @@ const styles = StyleSheet.create({
   readerTitle: {
     color: theme.textPrimary,
     fontSize: 18,
-    fontWeight: '800',
+    fontFamily: fontSans.w800,
+    fontWeight: 'normal',
   },
   readerSubtitle: {
     color: theme.textSecondary,
     fontSize: 13,
     lineHeight: 18,
+    fontFamily: fontSans.w400,
+    fontWeight: 'normal',
     marginTop: 4,
   },
   readerCloseButton: {
@@ -2546,7 +2603,8 @@ const styles = StyleSheet.create({
   },
   readerCloseButtonText: {
     color: theme.textOnDark,
-    fontWeight: '800',
+    fontFamily: fontSans.w800,
+    fontWeight: 'normal',
   },
   readerMetaBar: {
     flexDirection: 'row',
@@ -2559,12 +2617,14 @@ const styles = StyleSheet.create({
   readerMetaText: {
     color: theme.textPrimary,
     fontSize: 12,
-    fontWeight: '700',
+    fontFamily: fontSans.w700,
+    fontWeight: 'normal',
   },
   readerMetaDot: {
     color: theme.accentWarm,
     fontSize: 12,
-    fontWeight: '700',
+    fontFamily: fontSans.w700,
+    fontWeight: 'normal',
   },
   readerWebView: {
     flex: 1,
@@ -2581,6 +2641,7 @@ const styles = StyleSheet.create({
   readerLoadingText: {
     color: theme.textSecondary,
     fontSize: 15,
-    fontWeight: '600',
+    fontFamily: fontSans.w600,
+    fontWeight: 'normal',
   },
 });

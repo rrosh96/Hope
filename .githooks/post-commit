@@ -1,5 +1,6 @@
 #!/bin/sh
 # Append this commit to Notion "Hope — git commit timeline" (see scripts/notion-append-commit.mjs).
+# Debug: NOTION_COMMIT_LOG_VERBOSE=1 git commit ... (or export once) to log skip/network/success.
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT" || exit 0
 command -v node >/dev/null 2>&1 || exit 0
