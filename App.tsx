@@ -2243,9 +2243,7 @@ export default function App() {
                   }}
                 >
                   <View style={styles.storyVisualFallback}>
-                    <Text style={styles.storyVisualHeadline} numberOfLines={2}>
-                      {story.title}
-                    </Text>
+                    <Text style={styles.storyVisualHeadline}>{story.title}</Text>
                     <Text style={styles.storyVisualSource}>{story.source}</Text>
                   </View>
 
@@ -2456,7 +2454,7 @@ const styles = StyleSheet.create({
   },
   storyList: {
     marginTop: 14,
-    gap: 16,
+    gap: 22,
   },
   storyCard: {
     flexDirection: 'column',
@@ -2471,44 +2469,50 @@ const styles = StyleSheet.create({
   },
   storyVisualFallback: {
     backgroundColor: theme.surfaceHeader,
-    padding: 18,
+    padding: 20,
     justifyContent: 'flex-start',
-    gap: 8,
+    gap: 12,
   },
   storyVisualHeadline: {
     color: theme.textOnDark,
     fontSize: 22,
-    fontFamily: fontSans.w800,
+    fontFamily: fontSans.w500,
     fontWeight: 'normal',
-    lineHeight: 28,
+    lineHeight: 31,
   },
   storyVisualSource: {
     color: theme.textMutedOnDark,
-    fontSize: 13,
-    fontFamily: fontSans.w800,
+    fontSize: 12,
+    lineHeight: 18,
+    fontFamily: fontSans.w400,
     fontWeight: 'normal',
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
   storyBody: {
-    padding: 16,
-    gap: 12,
+    padding: 18,
+    gap: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: theme.borderSoft,
   },
   storyCardFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingTop: 6,
   },
   storyScoreText: {
     color: theme.textPrimary,
-    fontSize: 14,
-    fontFamily: fontSans.w800,
+    fontSize: 12,
+    lineHeight: 18,
+    fontFamily: fontSans.w400,
     fontWeight: 'normal',
   },
   storyScoreIcon: {
     color: theme.accentSecondary,
-    fontSize: 14,
-    fontFamily: fontSans.w800,
+    fontSize: 12,
+    lineHeight: 18,
+    fontFamily: fontSans.w400,
     fontWeight: 'normal',
   },
   storyMetaRight: {
@@ -2518,14 +2522,16 @@ const styles = StyleSheet.create({
   },
   storyCategory: {
     color: theme.accentPrimary,
-    fontSize: 13,
-    fontFamily: fontSans.w800,
+    fontSize: 12,
+    lineHeight: 18,
+    fontFamily: fontSans.w400,
     fontWeight: 'normal',
   },
   storyTime: {
     color: theme.textSecondary,
     fontSize: 12,
-    fontFamily: fontSans.w600,
+    lineHeight: 18,
+    fontFamily: fontSans.w400,
     fontWeight: 'normal',
   },
   loadMoreButton: {
@@ -2545,7 +2551,7 @@ const styles = StyleSheet.create({
   storyDescription: {
     color: theme.textSecondary,
     fontSize: 15,
-    lineHeight: 24,
+    lineHeight: 27,
     fontFamily: fontSans.w400,
     fontWeight: 'normal',
   },
