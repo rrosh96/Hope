@@ -17,6 +17,8 @@
  * Debugging: set NOTION_COMMIT_LOG_VERBOSE=1 to print skip reasons, network errors, and success.
  * Git hooks do not inherit your shell profile; `.env` in the repo root is loaded here so
  * commits from GUI clients still find the token if the file exists.
+ * If `fetch` fails (e.g. sandboxed commits with no outbound HTTPS), stderr includes the
+ * underlying `cause` when Node provides it (often `ENOTFOUND` for api.notion.com).
  *
  * Requires Node 18+ (global fetch). Exits 0 and does nothing if NOTION_TOKEN is unset.
  */
@@ -159,6 +161,9 @@ try {
     '[notion-append-commit] Network error (offline, DNS, or blocked):',
     err instanceof Error ? err.message : err,
   );
+  if (err instanceof Error && err.cause != null) {
+    console.error('[notion-append-commit] Cause:', err.cause);
+  }
   process.exit(0);
 }
 
