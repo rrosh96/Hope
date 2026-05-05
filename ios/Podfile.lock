@@ -65,7 +65,7 @@ PODS:
   - hermes-engine (0.81.6):
     - hermes-engine/Pre-built (= 0.81.6)
   - hermes-engine/Pre-built (0.81.6)
-  - onnxruntime-c (1.24.3)
+  - onnxruntime-c (1.25.1)
   - onnxruntime-react-native (1.24.3):
     - hermes-engine
     - onnxruntime-c
@@ -2143,7 +2143,7 @@ SPEC CHECKSUMS:
   ExpoModulesCore: f3da4f1ab5a8375d0beafab763739dbee8446583
   FBLazyVector: 14ce6e3675cacb2683ad30272f04274a4ee5b67d
   hermes-engine: 7219f6e751ad6ec7f3d7ec121830ee34dae40749
-  onnxruntime-c: 4a1a1a81da2087869dc9b6357f182952db2df29c
+  onnxruntime-c: 932c8d7de1dbf38048d33f153203c3168d445283
   onnxruntime-react-native: f7d130632fb1928c968281066f04be69125ab9b7
   RCTDeprecation: ff38238d8b6ddfe1fcfeb2718d1c14da9564c1c3
   RCTRequired: 5916f53ff05efcc2bf095b0de01a0e5b00112a55

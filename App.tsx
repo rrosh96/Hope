@@ -1,5 +1,4 @@
 import { StatusBar } from 'expo-status-bar';
-import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import { useFonts } from 'expo-font';
@@ -7,8 +6,10 @@ import { XMLParser } from 'fast-xml-parser';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Easing,
+  Image,
   Modal,
   Platform,
   Pressable,
@@ -41,15 +42,21 @@ const parser = new XMLParser({
   textNodeName: 'text',
 });
 
+/** Figma-aligned palette (Hope RN). */
 const palette = {
-  deepBlue: '#1d3557',
-  turquoise: '#457b9d',
-  cream: '#f1faee',
-  peach: '#a8dadc',
+  white: '#FFFFFF',
+  pageBlue: '#F8FAFC',
+  headerBlue: '#DBEAFE',
+  cardBlue: '#EFF6FF',
+  bodySlate: '#64748B',
+  headingSlate: '#1E293B',
+  metaSlate: '#64748B',
+  timestampSlate: '#64748B',
+  borderSlate: '#94A3B8',
+  ctaBlue: '#64748B',
+  softMint: '#A6DFDF',
+  errorRose: '#FFE8E4',
   coral: '#e63946',
-  white: '#ffffff',
-  ink: '#1d3557',
-  mutedInk: '#457b9d',
 };
 
 const alpha = (hex: string, opacity: number) => {
@@ -61,29 +68,220 @@ const alpha = (hex: string, opacity: number) => {
 };
 
 const theme = {
-  backgroundTop: palette.cream,
-  backgroundMiddle: palette.peach,
-  backgroundBottom: palette.white,
-  surfacePrimary: alpha(palette.cream, 0.92),
-  surfaceSecondary: alpha(palette.white, 0.92),
-  surfaceMuted: alpha(palette.peach, 0.72),
-  surfaceOverlay: alpha(palette.cream, 0.86),
-  surfaceOverlayCard: alpha(palette.white, 0.94),
-  surfaceBadge: palette.cream,
-  surfaceError: palette.peach,
-  surfaceHeader: palette.deepBlue,
-  surfaceReader: palette.cream,
-  surfaceReaderMeta: palette.peach,
+  backgroundTop: palette.pageBlue,
+  backgroundMiddle: palette.pageBlue,
+  backgroundBottom: palette.pageBlue,
+  surfacePrimary: palette.headerBlue,
+  surfaceSecondary: palette.cardBlue,
+  surfaceOverlay: alpha(palette.headingSlate, 0.45),
+  surfaceError: palette.errorRose,
+  surfaceHeader: palette.cardBlue,
+  surfaceReader: palette.pageBlue,
+  surfaceReaderMeta: palette.cardBlue,
   surfaceReaderWeb: palette.white,
-  textPrimary: palette.ink,
-  textSecondary: palette.mutedInk,
+  textPrimary: palette.headingSlate,
+  textSecondary: palette.bodySlate,
+  textMeta: palette.metaSlate,
+  textTimestamp: palette.timestampSlate,
   textOnDark: palette.white,
-  textMutedOnDark: palette.cream,
-  accentPrimary: palette.turquoise,
-  accentSecondary: palette.deepBlue,
+  textMutedOnDark: palette.metaSlate,
+  heroTitle: palette.headingSlate,
+  accentPrimary: palette.ctaBlue,
+  accentSecondary: palette.ctaBlue,
   accentWarm: palette.coral,
-  borderSoft: palette.peach,
-  shadow: palette.deepBlue,
+  borderSoft: palette.borderSlate,
+  shadow: palette.headingSlate,
+};
+
+const liquidGradient = {
+  color1: '#DBEAFE',
+  color2: '#EFF6FF',
+  color3: '#F8FAFC',
+  color4: '#FFFFFF',
+  accentBlue: '#A0C8FF',
+  deepBlue: '#78AAFF',
+};
+
+const liquidShaderHtml = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+  /* The user's JS sets container z-index to -1 (intended for embedding behind page content);
+     in our standalone WebView there is no body content, so we promote it to z-index 0 to keep it visible. */
+  #liquid-bg { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 0 !important; }
+  canvas { width: 100% !important; height: 100% !important; display: block; }
+</style>
+</head>
+<body>
+<div id="liquid-bg"></div>
+
+<script>
+(function () {
+  const container = document.getElementById("liquid-bg");
+
+  const canvas = document.createElement("canvas");
+  container.appendChild(canvas);
+
+  const gl = canvas.getContext("webgl");
+
+  function resize() {
+    const rect = container.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+  }
+
+  resize();
+  window.addEventListener("resize", resize);
+
+  // Make it behave like a background
+  Object.assign(container.style, {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
+    zIndex: -1,
+  });
+
+  Object.assign(canvas.style, {
+    width: "100%",
+    height: "100%",
+    display: "block",
+  });
+
+  const vertexShaderSource = \`
+  attribute vec2 position;
+  void main() {
+    gl_Position = vec4(position, 0.0, 1.0);
+  }
+  \`;
+
+  const fragmentShaderSource = \`
+  precision mediump float;
+
+  uniform vec2 resolution;
+  uniform float time;
+
+  vec3 color1 = vec3(219.0/255.0, 234.0/255.0, 254.0/255.0);
+  vec3 color2 = vec3(239.0/255.0, 246.0/255.0, 255.0/255.0);
+  vec3 color3 = vec3(248.0/255.0, 250.0/255.0, 252.0/255.0);
+  vec3 color4 = vec3(1.0, 1.0, 1.0);
+
+  vec3 accentBlue = vec3(160.0/255.0, 200.0/255.0, 255.0/255.0);
+  vec3 deepBlue   = vec3(120.0/255.0, 170.0/255.0, 255.0/255.0);
+
+  void main() {
+      vec2 uv = gl_FragCoord.xy / resolution;
+
+      float wave1 = sin(uv.x * 4.0 + time * 0.8) * 0.18;
+      float wave2 = cos(uv.y * 5.0 + time * 1.0) * 0.18;
+
+      uv += vec2(wave1, wave2);
+
+      float t1 = sin(time * 0.5 + uv.x * 3.0) * 0.5 + 0.5;
+      float t2 = cos(time * 0.6 + uv.y * 2.5) * 0.5 + 0.5;
+
+      vec3 baseMix = mix(color1, color2, t1);
+      vec3 softMix = mix(color3, color4, t2);
+
+      float blueWave = sin(time * 0.4 + (uv.x + uv.y) * 4.0) * 0.5 + 0.5;
+      vec3 blueLayer = mix(baseMix, accentBlue, blueWave * 0.05);
+
+      float depth = sin((uv.x - uv.y) * 5.0 + time * 0.7) * 0.5 + 0.5;
+      vec3 depthLayer = mix(blueLayer, deepBlue, depth * 0.2);
+
+      vec3 finalColor = mix(depthLayer, softMix, 0.3);
+
+      gl_FragColor = vec4(finalColor, 1.0);
+  }
+  \`;
+
+  function compileShader(type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    return shader;
+  }
+
+  const vertexShader = compileShader(gl.VERTEX_SHADER, vertexShaderSource);
+  const fragmentShader = compileShader(gl.FRAGMENT_SHADER, fragmentShaderSource);
+
+  const program = gl.createProgram();
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
+  gl.useProgram(program);
+
+  const vertices = new Float32Array([
+    -1, -1,
+     1, -1,
+    -1,  1,
+     1,  1
+  ]);
+
+  const buffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+  const position = gl.getAttribLocation(program, "position");
+  gl.enableVertexAttribArray(position);
+  gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+
+  const timeLocation = gl.getUniformLocation(program, "time");
+  const resolutionLocation = gl.getUniformLocation(program, "resolution");
+
+  function render(t) {
+    resize();
+
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
+    gl.uniform1f(timeLocation, t * 0.001);
+
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    requestAnimationFrame(render);
+  }
+
+  requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>`;
+
+/** iOS: system Avenir Next. Android/Web: bundled Inter (expo-font keys Inter_400 … Inter_800). */
+const fontSans = {
+  w400: Platform.select({
+    ios: 'AvenirNext-Regular',
+    android: 'Inter_400',
+    web: 'Inter_400',
+    default: 'Inter_400',
+  }),
+  w500: Platform.select({
+    ios: 'AvenirNext-Medium',
+    android: 'Inter_500',
+    web: 'Inter_500',
+    default: 'Inter_500',
+  }),
+  w600: Platform.select({
+    ios: 'AvenirNext-DemiBold',
+    android: 'Inter_600',
+    web: 'Inter_600',
+    default: 'Inter_600',
+  }),
+  w700: Platform.select({
+    ios: 'AvenirNext-Bold',
+    android: 'Inter_700',
+    web: 'Inter_700',
+    default: 'Inter_700',
+  }),
+  w800: Platform.select({
+    ios: 'AvenirNext-Heavy',
+    android: 'Inter_800',
+    web: 'Inter_800',
+    default: 'Inter_800',
+  }),
 };
 
 const htmlEntityMap: Record<string, string> = {
@@ -319,7 +517,6 @@ const feedParallelism = 6;
 const initialVisibleStoryCount = 5;
 const loadMoreBatchSize = 5;
 const maxIntroWords = 50;
-const maxScore = 10;
 const seenStoriesStorageKey = 'hope:seen-stories';
 const visitCountStorageKey = 'hope:visit-count';
 const storiesCacheStorageKey = 'hope:stories-cache';
@@ -335,10 +532,19 @@ const googleSheetsLogUrl =
 const SPLASH_ARTBOARD_W = 402;
 const SPLASH_ARTBOARD_H = 874;
 const SPLASH_CORNER_RADIUS = 20;
-const SPLASH_TEAL = '#006E78';
-const SPLASH_HEADLINE_TOP = 176;
+const SPLASH_TEAL = palette.headerBlue;
+const SPLASH_FACE_DARK = '#142236';
+const SPLASH_BRAND_ROW_TOP = 97;
+const SPLASH_BRAND_ROW_LEFT = 92;
+const SPLASH_BRAND_ROW_W = 194;
+const SPLASH_BRAND_ROW_H = 104;
+const SPLASH_BRAND_ICON_SIZE = 104;
+const SPLASH_BRAND_GAP = 11;
+const SPLASH_BRAND_TEXT_W = 79;
+const SPLASH_BRAND_TEXT_H = 46;
+const SPLASH_HEADLINE_TOP = 278;
 const SPLASH_HEADLINE_LEFT = 73;
-const SPLASH_HEADLINE_W = 255;
+const SPLASH_HEADLINE_W = 253;
 const SPLASH_HEADLINE_SIZE = 19.5;
 const SPLASH_HEADLINE_LINE_HEIGHT = 27;
 // Figma/CSS uses a wide teal block; visually it reads as the top of a huge circle.
@@ -359,6 +565,60 @@ const SPLASH_MOUTH_H = 20;
 const SPLASH_MOUTH_STROKE = 4;
 const SPLASH_MOUTH_CY_REST = 13.5;
 const SPLASH_MOUTH_CY_PEAK = 16.8;
+const motion = {
+  duration: {
+    fast: 120,
+    normal: 220,
+    slow: 320,
+    card: 420,
+    modal: 280,
+  },
+  easing: {
+    easeOut: Easing.out(Easing.cubic),
+    pressOut: Easing.out(Easing.quad),
+  },
+  distance: {
+    cardEnterY: 16,
+    modalEnterY: 24,
+    heroScrollY: 12,
+    categoryScrollY: 8,
+  },
+  scale: {
+    press: 0.98,
+    cardPress: 0.985,
+  },
+  opacity: {
+    cardFrom: 0,
+    cardTo: 1,
+  },
+  staggerMs: 60,
+};
+
+const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
+
+function animateIn(
+  value: Animated.Value,
+  toValue: number,
+  duration = motion.duration.normal,
+  easing = motion.easing.easeOut,
+  useNativeDriver = true,
+) {
+  return Animated.timing(value, {
+    toValue,
+    duration,
+    easing,
+    useNativeDriver,
+  });
+}
+
+function pressInOut(value: Animated.Value, pressed: boolean, pressScale = motion.scale.press) {
+  return Animated.timing(value, {
+    toValue: pressed ? pressScale : 1,
+    duration: pressed ? motion.duration.fast : motion.duration.normal,
+    easing: pressed ? Easing.linear : motion.easing.pressOut,
+    useNativeDriver: true,
+  });
+}
 
 function ReferenceSplashArtboard() {
   const breathPhase = useRef(new Animated.Value(0)).current;
@@ -483,7 +743,22 @@ function ReferenceSplashArtboard() {
 
   return (
     <View style={referenceSplashStyles.artboard}>
-      <Text style={referenceSplashStyles.headline}>Pulling in good news{'\n'}for you</Text>
+      <View style={referenceSplashStyles.brandRow}>
+        <Image
+          source={require('./assets/icons/hope-icon-1024.png')}
+          style={referenceSplashStyles.brandIcon}
+          resizeMode="cover"
+        />
+        <View style={referenceSplashStyles.brandTextWrap}>
+          <Text style={referenceSplashStyles.brandTitle} numberOfLines={1}>
+            Hope
+          </Text>
+          <Text style={referenceSplashStyles.brandByline} numberOfLines={1}>
+            by mrpotato
+          </Text>
+        </View>
+      </View>
+      <Text style={referenceSplashStyles.headline}>Pulling in good news for you</Text>
 
       <Animated.View style={{ transform: [{ translateY: orbTranslateY }] }}>
         <Animated.View style={referenceSplashStyles.tealOrb}>
@@ -502,7 +777,7 @@ function ReferenceSplashArtboard() {
                 width: SPLASH_EYE_SIZE,
                 height: SPLASH_EYE_SIZE,
                 borderRadius: SPLASH_EYE_SIZE / 2,
-                backgroundColor: '#FFFFFF',
+                backgroundColor: SPLASH_FACE_DARK,
                 transform: [{ scaleY: blinkAnim }],
               }}
             />
@@ -522,7 +797,7 @@ function ReferenceSplashArtboard() {
                 width: SPLASH_EYE_SIZE,
                 height: SPLASH_EYE_SIZE,
                 borderRadius: SPLASH_EYE_SIZE / 2,
-                backgroundColor: '#FFFFFF',
+                backgroundColor: SPLASH_FACE_DARK,
                 transform: [{ scaleY: blinkAnim }],
               }}
             />
@@ -541,7 +816,7 @@ function ReferenceSplashArtboard() {
             <Svg width={SPLASH_MOUTH_W} height={SPLASH_MOUTH_H} viewBox={`0 0 ${SPLASH_MOUTH_W} ${SPLASH_MOUTH_H}`}>
               <Path
                 d={mouthPathD}
-                stroke="#FFFFFF"
+                stroke={SPLASH_FACE_DARK}
                 strokeWidth={SPLASH_MOUTH_STROKE}
                 strokeLinecap="round"
                 fill="none"
@@ -609,6 +884,41 @@ const referenceSplashStyles = StyleSheet.create({
     height: SPLASH_ARTBOARD_H,
     backgroundColor: '#FFFFFF',
   },
+  brandRow: {
+    position: 'absolute',
+    top: SPLASH_BRAND_ROW_TOP,
+    left: SPLASH_BRAND_ROW_LEFT,
+    width: SPLASH_BRAND_ROW_W,
+    height: SPLASH_BRAND_ROW_H,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: SPLASH_BRAND_GAP,
+  },
+  brandIcon: {
+    width: SPLASH_BRAND_ICON_SIZE,
+    height: SPLASH_BRAND_ICON_SIZE,
+    borderRadius: 18,
+  },
+  brandTextWrap: {
+    width: SPLASH_BRAND_TEXT_W,
+    height: SPLASH_BRAND_TEXT_H,
+    justifyContent: 'flex-start',
+  },
+  brandTitle: {
+    color: '#000000',
+    fontSize: 19.5,
+    lineHeight: 27,
+    fontFamily: fontSans.w500,
+    fontWeight: 'normal',
+  },
+  brandByline: {
+    color: '#000000',
+    fontSize: 14,
+    lineHeight: 19,
+    fontFamily: fontSans.w400,
+    fontWeight: 'normal',
+  },
   headline: {
     position: 'absolute',
     left: SPLASH_HEADLINE_LEFT,
@@ -616,14 +926,10 @@ const referenceSplashStyles = StyleSheet.create({
     width: SPLASH_HEADLINE_W,
     fontSize: SPLASH_HEADLINE_SIZE,
     lineHeight: SPLASH_HEADLINE_LINE_HEIGHT,
-    fontWeight: '500',
+    fontWeight: 'normal',
     color: '#000000',
     textAlign: 'center',
-    fontFamily: Platform.select({
-      ios: 'AvenirNext-Medium',
-      android: 'HopeSplashSansMedium',
-      default: 'HopeSplashSansMedium',
-    }),
+    fontFamily: fontSans.w400,
   },
   tealOrb: {
     position: 'absolute',
@@ -1876,7 +2182,11 @@ async function fetchAllStories(
 
 export default function App() {
   const [fontsLoaded] = useFonts({
-    HopeSplashSansMedium: require('./assets/fonts/Inter-Medium.ttf'),
+    Inter_400: require('./assets/fonts/Inter-Regular.ttf'),
+    Inter_500: require('./assets/fonts/Inter-Medium.ttf'),
+    Inter_600: require('./assets/fonts/Inter-SemiBold.ttf'),
+    Inter_700: require('./assets/fonts/Inter-Bold.ttf'),
+    Inter_800: require('./assets/fonts/Inter-ExtraBold.ttf'),
   });
   const splashFontsReady = Platform.OS === 'ios' || fontsLoaded;
 
@@ -1888,15 +2198,85 @@ export default function App() {
   const [userLocation, setUserLocation] = useState('Finding your local edition...');
   const [locationContext, setLocationContext] = useState<LocationContext | undefined>(undefined);
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
+  const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
   const [allStories, setAllStories] = useState<NewsItem[]>([]);
   const [visibleStoryCount, setVisibleStoryCount] = useState(initialVisibleStoryCount);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sourceReaderLoading, setSourceReaderLoading] = useState(false);
-  const [lastUpdatedLabel, setLastUpdatedLabel] = useState('Not updated yet');
   const [seenStories, setSeenStories] = useState<Record<string, number>>({});
   const [, setDiagnostics] = useState<DiagnosticsMap>(createEmptyDiagnostics());
+  const sourceLoadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const cardOpacityAnimsRef = useRef(new Map<string, Animated.Value>());
+  const cardTranslateAnimsRef = useRef(new Map<string, Animated.Value>());
+  const pressScaleAnimsRef = useRef(new Map<string, Animated.Value>());
+  const prevVisibleUrlsRef = useRef<string[]>([]);
+  const categoryModalOpacity = useRef(new Animated.Value(0)).current;
+  const categoryModalTranslateY = useRef(new Animated.Value(motion.distance.modalEnterY)).current;
+  const readerModalOpacity = useRef(new Animated.Value(0)).current;
+  const readerModalTranslateY = useRef(new Animated.Value(motion.distance.modalEnterY)).current;
+
+  const getPressScale = useCallback((key: string) => {
+    const existing = pressScaleAnimsRef.current.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const created = new Animated.Value(1);
+    pressScaleAnimsRef.current.set(key, created);
+    return created;
+  }, []);
+
+  const setPressed = useCallback(
+    (key: string, pressed: boolean, pressScale = motion.scale.press) => {
+      const scaleValue = getPressScale(key);
+      pressInOut(scaleValue, pressed, pressScale).start();
+    },
+    [getPressScale],
+  );
+
+  const getCardOpacity = useCallback((key: string) => {
+    const existing = cardOpacityAnimsRef.current.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const created = new Animated.Value(motion.opacity.cardFrom);
+    cardOpacityAnimsRef.current.set(key, created);
+    return created;
+  }, []);
+
+  const getCardTranslateY = useCallback((key: string) => {
+    const existing = cardTranslateAnimsRef.current.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const created = new Animated.Value(motion.distance.cardEnterY);
+    cardTranslateAnimsRef.current.set(key, created);
+    return created;
+  }, []);
+
+  const clearSourceLoadTimeout = useCallback(() => {
+    if (!sourceLoadTimeoutRef.current) {
+      return;
+    }
+
+    clearTimeout(sourceLoadTimeoutRef.current);
+    sourceLoadTimeoutRef.current = null;
+  }, []);
+
+  const handleSourceLoadTimeout = useCallback(() => {
+    setSourceReaderLoading(false);
+    setSelectedNews(null);
+    Alert.alert(
+      'Unable to open source',
+      'This story is taking too long to load. Please try another story or try again in a moment.',
+    );
+  }, []);
 
   useEffect(() => {
     activeCategoryRef.current = activeCategory;
@@ -1905,6 +2285,20 @@ export default function App() {
   useEffect(() => {
     locationContextRef.current = locationContext;
   }, [locationContext]);
+
+  useEffect(() => {
+    clearSourceLoadTimeout();
+
+    if (selectedNews && sourceReaderLoading) {
+      sourceLoadTimeoutRef.current = setTimeout(() => {
+        handleSourceLoadTimeout();
+      }, 10000);
+    }
+
+    return () => {
+      clearSourceLoadTimeout();
+    };
+  }, [clearSourceLoadTimeout, handleSourceLoadTimeout, selectedNews, sourceReaderLoading]);
 
   const detectLocation = useCallback(async () => {
     try {
@@ -2036,10 +2430,8 @@ export default function App() {
           activeCategoryRef.current,
           nextLocationContext ?? locationContextRef.current,
         ).slice(0, initialVisibleStoryCount).length;
-        const updatedTimestamp = shouldReuseCache
-          ? cached.timestamp
-          : await saveStoriesCache(sanitizedStories);
         if (!shouldReuseCache) {
+          await saveStoriesCache(sanitizedStories);
           void saveDiagnosticsCache(fetchedResult.diagnostics);
         }
         const metrics = {
@@ -2054,10 +2446,6 @@ export default function App() {
         void appendRefreshMetrics(metrics);
         logRefreshMetrics(metrics);
         void postRefreshMetricsToGoogleSheets(metrics);
-        setLastUpdatedLabel(new Date(updatedTimestamp).toLocaleTimeString([], {
-          hour: 'numeric',
-          minute: '2-digit',
-        }));
 
         void enrichStories(sanitizedStories).then((enrichedStories) => {
           if (latestLoadId.current !== loadId) {
@@ -2118,6 +2506,36 @@ export default function App() {
     setVisibleStoryCount(initialVisibleStoryCount);
   }, [activeCategory]);
 
+  useEffect(() => {
+    if (categoryPickerVisible) {
+      categoryModalOpacity.setValue(0);
+      categoryModalTranslateY.setValue(motion.distance.modalEnterY);
+      Animated.parallel([
+        animateIn(categoryModalOpacity, 1, motion.duration.modal, motion.easing.easeOut),
+        animateIn(categoryModalTranslateY, 0, motion.duration.modal, motion.easing.easeOut),
+      ]).start();
+      return;
+    }
+
+    categoryModalOpacity.setValue(0);
+    categoryModalTranslateY.setValue(motion.distance.modalEnterY);
+  }, [categoryPickerVisible, categoryModalOpacity, categoryModalTranslateY]);
+
+  useEffect(() => {
+    if (selectedNews) {
+      readerModalOpacity.setValue(0);
+      readerModalTranslateY.setValue(motion.distance.modalEnterY);
+      Animated.parallel([
+        animateIn(readerModalOpacity, 1, motion.duration.modal, motion.easing.easeOut),
+        animateIn(readerModalTranslateY, 0, motion.duration.modal, motion.easing.easeOut),
+      ]).start();
+      return;
+    }
+
+    readerModalOpacity.setValue(0);
+    readerModalTranslateY.setValue(motion.distance.modalEnterY);
+  }, [selectedNews, readerModalOpacity, readerModalTranslateY]);
+
   const availableStories = getStoriesForCategory(
     sanitizeStories(allStories).filter((story) => !seenStories[story.url]),
     activeCategory,
@@ -2125,20 +2543,88 @@ export default function App() {
   );
   const visibleStories = availableStories.slice(0, visibleStoryCount);
   const canLoadMore = visibleStoryCount < availableStories.length;
+
+  const heroTranslateY = scrollY.interpolate({
+    inputRange: [0, 300],
+    outputRange: [0, -motion.distance.heroScrollY],
+    extrapolate: 'clamp',
+  });
+  const categoryTranslateY = scrollY.interpolate({
+    inputRange: [0, 260],
+    outputRange: [0, -motion.distance.categoryScrollY],
+    extrapolate: 'clamp',
+  });
+  const categoryOpacity = scrollY.interpolate({
+    inputRange: [0, 260],
+    outputRange: [1, 0.92],
+    extrapolate: 'clamp',
+  });
+  useEffect(() => {
+    const previousUrls = prevVisibleUrlsRef.current;
+    const previousSet = new Set(previousUrls);
+    const nextUrls = visibleStories.map((story) => story.url);
+    const anims: Animated.CompositeAnimation[] = [];
+
+    nextUrls.forEach((url, index) => {
+      const opacity = getCardOpacity(url);
+      const translateY = getCardTranslateY(url);
+      const isNew = !previousSet.has(url);
+
+      if (isNew) {
+        opacity.setValue(motion.opacity.cardFrom);
+        translateY.setValue(motion.distance.cardEnterY);
+      }
+
+      anims.push(
+        Animated.sequence([
+          Animated.delay(index * motion.staggerMs),
+          Animated.parallel([
+            animateIn(opacity, motion.opacity.cardTo, motion.duration.card, motion.easing.easeOut),
+            animateIn(translateY, 0, motion.duration.card, motion.easing.easeOut),
+          ]),
+        ]),
+      );
+    });
+
+    if (anims.length > 0) {
+      Animated.parallel(anims).start();
+    }
+
+    prevVisibleUrlsRef.current = nextUrls;
+  }, [visibleStories, activeCategory, getCardOpacity, getCardTranslateY]);
   return (
-    <LinearGradient
-      colors={[theme.backgroundTop, theme.backgroundMiddle, theme.backgroundBottom]}
-      style={styles.screen}
-    >
+    <View style={styles.screen}>
+      <View pointerEvents="none" style={styles.shaderBackground}>
+        <WebView
+          originWhitelist={['*']}
+          source={{ html: liquidShaderHtml }}
+          style={styles.shaderWebView}
+          containerStyle={styles.shaderWebView}
+          javaScriptEnabled
+          scrollEnabled={false}
+          androidLayerType="hardware"
+          overScrollMode="never"
+          showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
+          allowsLinkPreview={false}
+          opaque={false}
+        />
+      </View>
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
 
-        <ScrollView
+        <AnimatedScrollView
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+            { useNativeDriver: true },
+          )}
+          scrollEventThrottle={16}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
+              tintColor={theme.accentPrimary}
               onRefresh={async () => {
                 const nextContext = await detectLocation();
                 await loadStories('refresh', nextContext);
@@ -2146,47 +2632,49 @@ export default function App() {
             />
           }
         >
-          <View style={styles.heroCard}>
+          <Animated.View style={[styles.heroCard, { transform: [{ translateY: heroTranslateY }] }]}>
             <View style={styles.heroTopRow}>
-              <Text style={styles.eyebrow}>Live good news</Text>
-
-              <View style={styles.locationPill}>
-                <Text style={styles.locationValue}>{userLocation}</Text>
-              </View>
+              <Text style={styles.eyebrow}>{userLocation}</Text>
             </View>
             <Text style={styles.title}>Hope</Text>
             <Text style={styles.subtitle}>
-              A daily dose of Good in a noisy world
+              A daily dose of good in a noisy world
             </Text>
-            <Text style={styles.lastUpdatedText}>Last updated {lastUpdatedLabel}</Text>
-          </View>
+          </Animated.View>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoryRow}
+          <Animated.View
+            style={{ transform: [{ translateY: categoryTranslateY }], opacity: categoryOpacity }}
           >
-            {categories.map((category) => {
-              const isActive = category === activeCategory;
-
-              return (
-                <Pressable
-                  key={category}
-                  onPress={() => setActiveCategory(category)}
-                  style={[styles.categoryChip, isActive && styles.categoryChipActive]}
-                >
-                  <Text
-                    style={[
-                      styles.categoryChipText,
-                      isActive && styles.categoryChipTextActive,
-                    ]}
-                  >
-                    {category}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+            <Pressable
+              style={styles.categoryDropdown}
+              onPressIn={() => setPressed('category-dropdown', true)}
+              onPressOut={() => setPressed('category-dropdown', false)}
+              onPress={() => setCategoryPickerVisible(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`Category, ${activeCategory}. Opens list.`}
+            >
+              <Animated.View
+                style={[
+                  styles.categoryDropdownInner,
+                  { transform: [{ scale: getPressScale('category-dropdown') }] },
+                ]}
+              >
+                <Text style={styles.categoryDropdownLabel}>{activeCategory}</Text>
+                <View style={styles.categoryDropdownChevronWrap}>
+                  <Svg width={12} height={8} viewBox="0 0 12 8" accessibilityElementsHidden>
+                    <Path
+                      d="M1 2 L6 6.5 L11 2"
+                      stroke={theme.textMeta}
+                      strokeWidth={1.5}
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </Svg>
+                </View>
+              </Animated.View>
+            </Pressable>
+          </Animated.View>
 
           {error ? (
             <View style={styles.errorCard}>
@@ -2198,65 +2686,156 @@ export default function App() {
           {!loading && !error ? (
             <View style={styles.storyList}>
               {visibleStories.map((story) => (
-                <Pressable
+                <Animated.View
                   key={story.url}
-                  style={styles.storyCard}
-                  onPress={async () => {
-                    setSourceReaderLoading(true);
-                    const nextSeenStories = await markStorySeen(story.url);
-                    setSeenStories(nextSeenStories);
-                    setSelectedNews(story);
+                  style={{
+                    opacity: getCardOpacity(story.url),
+                    transform: [
+                      { translateY: getCardTranslateY(story.url) },
+                      { scale: getPressScale(`story:${story.url}`) },
+                    ],
                   }}
                 >
-                  <View style={styles.storyVisualFallback}>
-                    <Text style={styles.storyVisualHeadline} numberOfLines={3}>
-                      {story.title}
-                    </Text>
-                    <Text style={styles.storyVisualSource}>{story.source}</Text>
-                  </View>
-
-                  <View style={styles.storyBody}>
-                    <View style={styles.storyMetaRow}>
-                      <Text style={styles.storyCategory}>{story.category}</Text>
-                      <Text style={styles.storyTime}>{story.time}</Text>
-                    </View>
-                    <Text style={styles.storyDescription}>{story.description}</Text>
-
-                    <View style={styles.scoreBadge}>
-                      <Text style={styles.scoreBadgeLabel}>Score</Text>
-                      <Text style={styles.scoreBadgeText}>✦ {story.positiveScore}/{maxScore}</Text>
+                  <Pressable
+                    style={styles.storyCard}
+                    onPressIn={() => setPressed(`story:${story.url}`, true, motion.scale.cardPress)}
+                    onPressOut={() => setPressed(`story:${story.url}`, false, motion.scale.cardPress)}
+                    onPress={async () => {
+                      setSourceReaderLoading(true);
+                      setSelectedNews(story);
+                      void markStorySeen(story.url);
+                    }}
+                  >
+                    <View style={styles.storyVisualFallback}>
+                      <Text style={styles.storyVisualHeadline}>{story.title}</Text>
+                      <Text style={styles.storyVisualSource}>{story.source}</Text>
                     </View>
 
-                    <Text style={styles.storyFooter}>{story.location}</Text>
-                  </View>
-                </Pressable>
+                    <View style={styles.storyBody}>
+                      <Text style={styles.storyDescription}>{story.description}</Text>
+
+                      <View style={styles.storyCardFooter}>
+                        <Text style={styles.storyCategory} numberOfLines={1}>
+                          {story.category}
+                        </Text>
+                        <Text style={styles.storyTime} numberOfLines={1}>
+                          {story.time}
+                        </Text>
+                      </View>
+                    </View>
+                  </Pressable>
+                </Animated.View>
               ))}
 
               {canLoadMore ? (
                 <Pressable
                   style={styles.loadMoreButton}
+                  onPressIn={() => setPressed('load-more', true)}
+                  onPressOut={() => setPressed('load-more', false)}
                   onPress={() =>
                     setVisibleStoryCount((current) =>
                       Math.min(current + loadMoreBatchSize, availableStories.length),
                     )
                   }
                 >
-                  <Text style={styles.loadMoreButtonText}>Load more</Text>
+                  <Animated.Text
+                    style={[styles.loadMoreButtonText, { transform: [{ scale: getPressScale('load-more') }] }]}
+                  >
+                    Load more
+                  </Animated.Text>
                 </Pressable>
               ) : null}
             </View>
           ) : null}
-        </ScrollView>
+        </AnimatedScrollView>
 
         {loading || refreshing ? <ReferenceSplashOverlay fontsReady={splashFontsReady} /> : null}
 
         <Modal
-          visible={selectedNews !== null}
-          animationType="slide"
-          presentationStyle="fullScreen"
-          onRequestClose={() => setSelectedNews(null)}
+          visible={categoryPickerVisible}
+          transparent
+          animationType="none"
+          onRequestClose={() => setCategoryPickerVisible(false)}
         >
-          <SafeAreaView style={styles.modalScreen}>
+          <View style={styles.categoryPickerRoot}>
+            <Animated.View
+              style={[
+                styles.categoryPickerBackdrop,
+                { opacity: categoryModalOpacity },
+              ]}
+            >
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPressIn={() => setPressed('category-backdrop', true)}
+                onPressOut={() => setPressed('category-backdrop', false)}
+                onPress={() => setCategoryPickerVisible(false)}
+                accessibilityLabel="Dismiss category list"
+              />
+            </Animated.View>
+            <Animated.View
+              style={[
+                styles.categoryPickerSheet,
+                {
+                  opacity: categoryModalOpacity,
+                  transform: [
+                    { translateY: categoryModalTranslateY },
+                    { scale: getPressScale('category-backdrop') },
+                  ],
+                },
+              ]}
+            >
+              {categories.map((category) => (
+                <Pressable
+                  key={category}
+                  onPressIn={() => setPressed(`category-row:${category}`, true)}
+                  onPressOut={() => setPressed(`category-row:${category}`, false)}
+                  onPress={() => {
+                    setActiveCategory(category);
+                    setCategoryPickerVisible(false);
+                  }}
+                  style={[
+                    styles.categoryPickerRow,
+                    category === activeCategory && styles.categoryPickerRowActive,
+                  ]}
+                >
+                  <Animated.View
+                    style={{ transform: [{ scale: getPressScale(`category-row:${category}`) }] }}
+                  >
+                    <Text
+                      style={[
+                        styles.categoryPickerRowText,
+                        category === activeCategory && styles.categoryPickerRowTextActive,
+                      ]}
+                    >
+                      {category}
+                    </Text>
+                  </Animated.View>
+                </Pressable>
+              ))}
+            </Animated.View>
+          </View>
+        </Modal>
+
+        <Modal
+          visible={selectedNews !== null}
+          animationType="none"
+          presentationStyle="fullScreen"
+          onRequestClose={() => {
+            clearSourceLoadTimeout();
+            setSourceReaderLoading(false);
+            setSelectedNews(null);
+          }}
+        >
+          <Animated.View
+            style={[
+              styles.modalScreen,
+              {
+                opacity: readerModalOpacity,
+                transform: [{ translateY: readerModalTranslateY }],
+              },
+            ]}
+          >
+            <SafeAreaView style={styles.modalScreen}>
             {selectedNews ? (
               <View style={styles.readerScreen}>
                 <View style={styles.readerHeader}>
@@ -2270,9 +2849,18 @@ export default function App() {
 
                   <Pressable
                     style={styles.readerCloseButton}
+                    onPressIn={() => setPressed('reader-close', true)}
+                    onPressOut={() => setPressed('reader-close', false)}
                     onPress={() => setSelectedNews(null)}
                   >
-                    <Text style={styles.readerCloseButtonText}>Done</Text>
+                    <Animated.Text
+                      style={[
+                        styles.readerCloseButtonText,
+                        { transform: [{ scale: getPressScale('reader-close') }] },
+                      ]}
+                    >
+                      Done
+                    </Animated.Text>
                   </Pressable>
                 </View>
 
@@ -2293,194 +2881,237 @@ export default function App() {
                   source={{ uri: selectedNews.url }}
                   startInLoadingState
                   onLoadStart={() => setSourceReaderLoading(true)}
-                  onLoadEnd={() => setSourceReaderLoading(false)}
+                  onLoadEnd={() => {
+                    clearSourceLoadTimeout();
+                    setSourceReaderLoading(false);
+                  }}
                   style={styles.readerWebView}
                 />
               </View>
             ) : null}
-          </SafeAreaView>
+            </SafeAreaView>
+          </Animated.View>
         </Modal>
       </SafeAreaView>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    backgroundColor: theme.backgroundTop,
+  },
+  shaderBackground: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: liquidGradient.color2,
+  },
+  shaderWebView: {
+    flex: 1,
+    backgroundColor: 'transparent',
   },
   safeArea: {
     flex: 1,
   },
   content: {
-    paddingHorizontal: 18,
+    paddingHorizontal: 24,
     paddingTop: 10,
     paddingBottom: 32,
   },
   heroCard: {
     backgroundColor: theme.surfacePrimary,
-    borderRadius: 28,
-    padding: 22,
-    marginBottom: 18,
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    marginBottom: 20,
     shadowColor: theme.shadow,
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 3,
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1,
   },
   eyebrow: {
-    color: theme.accentSecondary,
-    fontSize: 13,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 8,
+    color: theme.textSecondary,
+    fontSize: 14,
+    lineHeight: 19,
+    fontFamily: fontSans.w400,
+    fontWeight: 'normal',
   },
   title: {
-    color: theme.textPrimary,
-    fontSize: 36,
-    fontWeight: '800',
-    marginBottom: 8,
+    color: theme.heroTitle,
+    fontSize: 32,
+    lineHeight: 44,
+    fontFamily: fontSans.w600,
+    fontWeight: 'normal',
+    marginTop: 10,
+    marginBottom: 6,
   },
   subtitle: {
     color: theme.textSecondary,
-    fontSize: 16,
-    lineHeight: 24,
-    marginBottom: 10,
-  },
-  lastUpdatedText: {
-    color: theme.textSecondary,
-    fontSize: 13,
-    fontWeight: '600',
-    marginBottom: 18,
+    fontSize: 14,
+    lineHeight: 19,
+    fontFamily: fontSans.w400,
+    fontWeight: 'normal',
+    marginBottom: 8,
   },
   heroTopRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 8,
   },
-  locationPill: {
-    backgroundColor: theme.surfaceReaderMeta,
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+  categoryDropdown: {
+    alignSelf: 'flex-start',
+    marginBottom: 20,
+    backgroundColor: palette.white,
+    borderWidth: 1,
+    borderColor: theme.textMeta,
+    borderRadius: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
   },
-  locationValue: {
-    color: theme.textPrimary,
+  categoryDropdownInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  categoryDropdownLabel: {
+    color: theme.textMeta,
     fontSize: 14,
-    fontWeight: '700',
+    lineHeight: 19,
+    fontFamily: fontSans.w500,
+    fontWeight: 'normal',
+    ...Platform.select({
+      android: { includeFontPadding: false },
+      default: {},
+    }),
   },
-  categoryRow: {
-    paddingBottom: 8,
-    paddingRight: 18,
+  categoryDropdownChevronWrap: {
+    height: 19,
+    width: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  categoryChip: {
-    backgroundColor: theme.surfaceMuted,
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginRight: 10,
+  categoryPickerRoot: {
+    flex: 1,
+    justifyContent: 'flex-end',
   },
-  categoryChipActive: {
-    backgroundColor: theme.accentPrimary,
+  categoryPickerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: theme.surfaceOverlay,
   },
-  categoryChipText: {
+  categoryPickerSheet: {
+    backgroundColor: theme.surfaceSecondary,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingVertical: 8,
+    paddingBottom: 24,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: theme.borderSoft,
+  },
+  categoryPickerRow: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+  },
+  categoryPickerRowActive: {
+    backgroundColor: alpha(theme.textMeta, 0.12),
+  },
+  categoryPickerRowText: {
     color: theme.textPrimary,
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 16,
+    fontFamily: fontSans.w400,
+    fontWeight: 'normal',
   },
-  categoryChipTextActive: {
-    color: theme.textOnDark,
+  categoryPickerRowTextActive: {
+    fontFamily: fontSans.w600,
+    color: theme.accentPrimary,
   },
   errorCard: {
     backgroundColor: theme.surfaceError,
-    borderRadius: 24,
+    borderRadius: 16,
     padding: 18,
     marginTop: 14,
   },
   errorTitle: {
-    color: theme.accentWarm,
+    color: theme.textSecondary,
     fontSize: 16,
-    fontWeight: '800',
+    fontFamily: fontSans.w600,
+    fontWeight: 'normal',
     marginBottom: 6,
   },
   errorText: {
     color: theme.textPrimary,
     lineHeight: 22,
+    fontFamily: fontSans.w400,
+    fontWeight: 'normal',
   },
   storyList: {
-    marginTop: 14,
-    gap: 16,
+    marginTop: 0,
+    gap: 20,
   },
   storyCard: {
+    flexDirection: 'column',
     backgroundColor: theme.surfaceSecondary,
-    borderRadius: 24,
+    borderRadius: 16,
     overflow: 'hidden',
     shadowColor: theme.shadow,
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 3,
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
   storyVisualFallback: {
-    minHeight: 130,
     backgroundColor: theme.surfaceHeader,
-    padding: 18,
-    justifyContent: 'space-between',
+    paddingTop: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    justifyContent: 'flex-start',
+    gap: 16,
   },
   storyVisualHeadline: {
-    color: theme.textOnDark,
-    fontSize: 22,
-    fontWeight: '800',
-    lineHeight: 28,
+    color: theme.textPrimary,
+    fontSize: 16,
+    fontFamily: fontSans.w500,
+    fontWeight: 'normal',
+    lineHeight: 22,
   },
   storyVisualSource: {
-    color: theme.textMutedOnDark,
-    fontSize: 13,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+    color: theme.textMeta,
+    fontSize: 12,
+    lineHeight: 16,
+    fontFamily: fontSans.w500,
+    fontWeight: 'normal',
   },
   storyBody: {
-    padding: 16,
+    paddingTop: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: theme.borderSoft,
   },
-  storyMetaRow: {
+  storyCardFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    alignItems: 'center',
+    paddingTop: 0,
   },
   storyCategory: {
-    color: theme.accentPrimary,
-    fontSize: 13,
-    fontWeight: '800',
+    color: theme.textMeta,
+    fontSize: 12,
+    lineHeight: 16,
+    fontFamily: fontSans.w500,
+    fontWeight: 'normal',
+    flexShrink: 1,
+    marginRight: 8,
   },
   storyTime: {
-    color: theme.textSecondary,
+    color: theme.textTimestamp,
     fontSize: 12,
-    fontWeight: '600',
-  },
-  scoreBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: theme.surfaceBadge,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginTop: 14,
-    marginBottom: 12,
-  },
-  scoreBadgeLabel: {
-    color: theme.accentSecondary,
-    fontSize: 11,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 2,
-  },
-  scoreBadgeText: {
-    color: theme.textPrimary,
-    fontSize: 14,
-    fontWeight: '800',
+    lineHeight: 16,
+    fontFamily: fontSans.w500,
+    fontWeight: 'normal',
+    flexShrink: 0,
   },
   loadMoreButton: {
     marginTop: 4,
@@ -2493,18 +3124,15 @@ const styles = StyleSheet.create({
   loadMoreButtonText: {
     color: theme.textOnDark,
     fontSize: 15,
-    fontWeight: '800',
+    fontFamily: fontSans.w600,
+    fontWeight: 'normal',
   },
   storyDescription: {
-    color: theme.textSecondary,
-    fontSize: 15,
-    lineHeight: 22,
-    marginBottom: 0,
-  },
-  storyFooter: {
-    color: theme.textSecondary,
-    fontSize: 13,
-    fontWeight: '600',
+    color: theme.textMeta,
+    fontSize: 14,
+    lineHeight: 19,
+    fontFamily: fontSans.w400,
+    fontWeight: 'normal',
   },
   modalScreen: {
     flex: 1,
@@ -2530,22 +3158,24 @@ const styles = StyleSheet.create({
     paddingRight: 12,
   },
   readerEyebrow: {
-    color: theme.accentSecondary,
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    color: theme.textSecondary,
+    fontSize: 12,
+    fontFamily: fontSans.w500,
+    fontWeight: 'normal',
     marginBottom: 4,
   },
   readerTitle: {
     color: theme.textPrimary,
     fontSize: 18,
-    fontWeight: '800',
+    fontFamily: fontSans.w600,
+    fontWeight: 'normal',
   },
   readerSubtitle: {
     color: theme.textSecondary,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 19,
+    fontFamily: fontSans.w400,
+    fontWeight: 'normal',
     marginTop: 4,
   },
   readerCloseButton: {
@@ -2556,7 +3186,9 @@ const styles = StyleSheet.create({
   },
   readerCloseButtonText: {
     color: theme.textOnDark,
-    fontWeight: '800',
+    fontFamily: fontSans.w600,
+    fontWeight: 'normal',
+    fontSize: 15,
   },
   readerMetaBar: {
     flexDirection: 'row',
@@ -2567,14 +3199,17 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   readerMetaText: {
-    color: theme.textPrimary,
+    color: theme.textMeta,
     fontSize: 12,
-    fontWeight: '700',
+    lineHeight: 16,
+    fontFamily: fontSans.w500,
+    fontWeight: 'normal',
   },
   readerMetaDot: {
-    color: theme.accentWarm,
+    color: theme.textMeta,
     fontSize: 12,
-    fontWeight: '700',
+    fontFamily: fontSans.w500,
+    fontWeight: 'normal',
   },
   readerWebView: {
     flex: 1,
@@ -2591,6 +3226,7 @@ const styles = StyleSheet.create({
   readerLoadingText: {
     color: theme.textSecondary,
     fontSize: 15,
-    fontWeight: '600',
+    fontFamily: fontSans.w500,
+    fontWeight: 'normal',
   },
 });
