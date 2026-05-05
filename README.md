@@ -1,6 +1,6 @@
 # Hope Mobile
 
-Hope is an Expo React Native app that surfaces constructive, credible news: live RSS-style feeds, on-device story classification (including MobileBERT / ONNX paths under `src/app/ml/`), category browsing, caching, and an in-app WebView reader. Product documentation also lives in Notion (including a git commit timeline you can sync from this repo).
+Hope is an Expo React Native app that surfaces constructive, credible news: live RSS-style feeds, on-device story classification (including MobileBERT / ONNX paths under `src/app/ml/`), category browsing, caching, and an in-app WebView reader. **Product doc export (paste into Notion):** [`docs/Hope-App-Documentation.md`](docs/Hope-App-Documentation.md). Notion can also hold a git commit timeline (see below).
 
 ## Run locally
 
@@ -39,7 +39,8 @@ Typecheck: `npx tsc --noEmit`
 
 ## UI and typography (recent work)
 
-- **Story cards:** Two-band layout—header with title + source, body with full description (no artificial min-height), footer row with score (`✦ x/10`) and `category • time`. Colors use the existing theme tokens.
+- **Story cards:** Two-band layout—header with title + source, body with description, footer with **category** and **time** (positive score is still computed for ranking but **not shown** on the card). Figma-aligned palette (peach hero, soft blue header band, meta grays) lives in `App.tsx` `palette` / `theme`.
+- **Category:** Outlined control + **modal** picker (not horizontal chips). **Hero:** first line is **detected location**; no “Last updated” line in the hero.
 - **Fonts:** **Avenir Next** on iOS (system faces). **Inter** on Android and web via bundled TTFs in `assets/fonts/` (`Inter-Regular` through `Inter-ExtraBold`), loaded with `expo-font` and mapped in `App.tsx` (`fontSans` / `Inter_400` … `Inter_800`). Splash headline uses the same weight mapping.
 - **Attribution:** See `ATTRIBUTIONS.md` for Inter (OFL).
 
