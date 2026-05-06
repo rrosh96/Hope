@@ -9,7 +9,6 @@ import {
   Alert,
   Animated,
   Easing,
-  Image,
   Modal,
   Platform,
   Pressable,
@@ -22,7 +21,9 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
+import { FlowerLogo } from './src/app/components/FlowerLogo';
 import {
   buildCategoryFeedUrls,
   categories,
@@ -92,163 +93,6 @@ const theme = {
   borderSoft: palette.borderSlate,
   shadow: palette.headingSlate,
 };
-
-const liquidGradient = {
-  color1: '#DBEAFE',
-  color2: '#EFF6FF',
-  color3: '#F8FAFC',
-  color4: '#FFFFFF',
-  accentBlue: '#A0C8FF',
-  deepBlue: '#78AAFF',
-};
-
-const liquidShaderHtml = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<style>
-  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
-  /* The user's JS sets container z-index to -1 (intended for embedding behind page content);
-     in our standalone WebView there is no body content, so we promote it to z-index 0 to keep it visible. */
-  #liquid-bg { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 0 !important; }
-  canvas { width: 100% !important; height: 100% !important; display: block; }
-</style>
-</head>
-<body>
-<div id="liquid-bg"></div>
-
-<script>
-(function () {
-  const container = document.getElementById("liquid-bg");
-
-  const canvas = document.createElement("canvas");
-  container.appendChild(canvas);
-
-  const gl = canvas.getContext("webgl");
-
-  function resize() {
-    const rect = container.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = rect.height;
-  }
-
-  resize();
-  window.addEventListener("resize", resize);
-
-  // Make it behave like a background
-  Object.assign(container.style, {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: "100%",
-    height: "100%",
-    zIndex: -1,
-  });
-
-  Object.assign(canvas.style, {
-    width: "100%",
-    height: "100%",
-    display: "block",
-  });
-
-  const vertexShaderSource = \`
-  attribute vec2 position;
-  void main() {
-    gl_Position = vec4(position, 0.0, 1.0);
-  }
-  \`;
-
-  const fragmentShaderSource = \`
-  precision mediump float;
-
-  uniform vec2 resolution;
-  uniform float time;
-
-  vec3 color1 = vec3(219.0/255.0, 234.0/255.0, 254.0/255.0);
-  vec3 color2 = vec3(239.0/255.0, 246.0/255.0, 255.0/255.0);
-  vec3 color3 = vec3(248.0/255.0, 250.0/255.0, 252.0/255.0);
-  vec3 color4 = vec3(1.0, 1.0, 1.0);
-
-  vec3 accentBlue = vec3(160.0/255.0, 200.0/255.0, 255.0/255.0);
-  vec3 deepBlue   = vec3(120.0/255.0, 170.0/255.0, 255.0/255.0);
-
-  void main() {
-      vec2 uv = gl_FragCoord.xy / resolution;
-
-      float wave1 = sin(uv.x * 4.0 + time * 0.8) * 0.18;
-      float wave2 = cos(uv.y * 5.0 + time * 1.0) * 0.18;
-
-      uv += vec2(wave1, wave2);
-
-      float t1 = sin(time * 0.5 + uv.x * 3.0) * 0.5 + 0.5;
-      float t2 = cos(time * 0.6 + uv.y * 2.5) * 0.5 + 0.5;
-
-      vec3 baseMix = mix(color1, color2, t1);
-      vec3 softMix = mix(color3, color4, t2);
-
-      float blueWave = sin(time * 0.4 + (uv.x + uv.y) * 4.0) * 0.5 + 0.5;
-      vec3 blueLayer = mix(baseMix, accentBlue, blueWave * 0.05);
-
-      float depth = sin((uv.x - uv.y) * 5.0 + time * 0.7) * 0.5 + 0.5;
-      vec3 depthLayer = mix(blueLayer, deepBlue, depth * 0.2);
-
-      vec3 finalColor = mix(depthLayer, softMix, 0.3);
-
-      gl_FragColor = vec4(finalColor, 1.0);
-  }
-  \`;
-
-  function compileShader(type, source) {
-    const shader = gl.createShader(type);
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    return shader;
-  }
-
-  const vertexShader = compileShader(gl.VERTEX_SHADER, vertexShaderSource);
-  const fragmentShader = compileShader(gl.FRAGMENT_SHADER, fragmentShaderSource);
-
-  const program = gl.createProgram();
-  gl.attachShader(program, vertexShader);
-  gl.attachShader(program, fragmentShader);
-  gl.linkProgram(program);
-  gl.useProgram(program);
-
-  const vertices = new Float32Array([
-    -1, -1,
-     1, -1,
-    -1,  1,
-     1,  1
-  ]);
-
-  const buffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-  gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
-
-  const position = gl.getAttribLocation(program, "position");
-  gl.enableVertexAttribArray(position);
-  gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
-
-  const timeLocation = gl.getUniformLocation(program, "time");
-  const resolutionLocation = gl.getUniformLocation(program, "resolution");
-
-  function render(t) {
-    resize();
-
-    gl.viewport(0, 0, canvas.width, canvas.height);
-    gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
-    gl.uniform1f(timeLocation, t * 0.001);
-
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-    requestAnimationFrame(render);
-  }
-
-  requestAnimationFrame(render);
-})();
-</script>
-</body>
-</html>`;
 
 /** iOS: system Avenir Next. Android/Web: bundled Inter (expo-font keys Inter_400 … Inter_800). */
 const fontSans = {
@@ -529,37 +373,46 @@ const metricsHistoryLimit = 20;
 const googleSheetsLogUrl =
   'https://script.google.com/macros/s/AKfycbyW1auT3ZLBD6mrwSqX8j6rB_8k-bMwsxeXog4cdgQbqTNxc8GYccETrYVkSeYoBGQb/exec';
 
-const SPLASH_ARTBOARD_W = 402;
-const SPLASH_ARTBOARD_H = 874;
-const SPLASH_CORNER_RADIUS = 20;
-const SPLASH_TEAL = palette.headerBlue;
+const debugRuntimeLog = (
+  runId: string,
+  hypothesisId: string,
+  location: string,
+  message: string,
+  data: Record<string, unknown>,
+) => {
+  // #region agent log
+  fetch('http://127.0.0.1:7531/ingest/000a453d-ada2-4876-bd79-ca460fb756a4', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Debug-Session-Id': '4126fd',
+    },
+    body: JSON.stringify({
+      sessionId: '4126fd',
+      runId,
+      hypothesisId,
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+};
+
+/** Splash panel / orb — Figma Rectangle 2 `#EDF6F9`. */
+const SPLASH_PANEL_BLUE = '#EDF6F9';
+const SPLASH_PROGRESS_TRACK = '#EDF6F9';
+const SPLASH_PROGRESS_FILL = '#3281D1';
 const SPLASH_FACE_DARK = '#142236';
-const SPLASH_BRAND_ROW_TOP = 97;
-const SPLASH_BRAND_ROW_LEFT = 92;
-const SPLASH_BRAND_ROW_W = 194;
-const SPLASH_BRAND_ROW_H = 104;
 const SPLASH_BRAND_ICON_SIZE = 104;
 const SPLASH_BRAND_GAP = 11;
-const SPLASH_BRAND_TEXT_W = 79;
-const SPLASH_BRAND_TEXT_H = 46;
-const SPLASH_HEADLINE_TOP = 278;
-const SPLASH_HEADLINE_LEFT = 73;
-const SPLASH_HEADLINE_W = 253;
 const SPLASH_HEADLINE_SIZE = 19.5;
 const SPLASH_HEADLINE_LINE_HEIGHT = 27;
-// Figma/CSS uses a wide teal block; visually it reads as the top of a huge circle.
-// We model it as a full circle clipped by the artboard so the top edge is a smooth arc.
-// Keep the orb below the artboard midpoint so the face sits in the bottom half of the splash.
-const SPLASH_ARTBOARD_MID = SPLASH_ARTBOARD_H / 2;
-const SPLASH_ORB_DIAMETER = 900;
-const SPLASH_ORB_LEFT = (SPLASH_ARTBOARD_W - SPLASH_ORB_DIAMETER) / 2;
-const SPLASH_ORB_TOP = SPLASH_ARTBOARD_MID + 20;
+const SPLASH_PROGRESS_HEIGHT = 9;
+const SPLASH_TEAL_TOP_RATIO = 347.5 / 874;
+const SPLASH_HEADLINE_TOP_RATIO = 166 / 874;
 const SPLASH_EYE_SIZE = 15;
-const SPLASH_EYE_LEFT = 152;
-const SPLASH_EYE_RIGHT = 221;
-const SPLASH_EYE_TOP = SPLASH_ORB_TOP + 110;
-const SPLASH_MOUTH_LEFT = 164.5;
-const SPLASH_MOUTH_TOP = SPLASH_EYE_TOP + 36.5;
 const SPLASH_MOUTH_W = 61;
 const SPLASH_MOUTH_H = 20;
 const SPLASH_MOUTH_STROKE = 4;
@@ -620,7 +473,24 @@ function pressInOut(value: Animated.Value, pressed: boolean, pressScale = motion
   });
 }
 
-function ReferenceSplashArtboard() {
+function ReferenceSplashArtboard({ progressAnim }: { progressAnim: Animated.Value }) {
+  const { width: screenW, height: screenH } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+
+  const trackW = Math.min(252, screenW - 48);
+  const fillWidth = progressAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, trackW],
+  });
+
+  const orbDiameter = Math.max(screenW, screenH) * 2;
+  const orbLeft = (screenW - orbDiameter) / 2;
+  const orbTop = screenH * 0.38;
+
+  const eyeOffsetX = screenW * 0.085;
+  const eyeY = screenH * 0.51;
+  const mouthY = eyeY + screenH * 0.045;
+
   const breathPhase = useRef(new Animated.Value(0)).current;
   const eyeDriftX = useRef(new Animated.Value(-2)).current;
   const blinkAnim = useRef(new Animated.Value(1)).current;
@@ -743,119 +613,166 @@ function ReferenceSplashArtboard() {
 
   return (
     <View style={referenceSplashStyles.artboard}>
-      <View style={referenceSplashStyles.brandRow}>
-        <Image
-          source={require('./assets/icons/hope-icon-1024.png')}
-          style={referenceSplashStyles.brandIcon}
-          resizeMode="cover"
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          top: screenH * SPLASH_TEAL_TOP_RATIO,
+          bottom: 0,
+          backgroundColor: SPLASH_PANEL_BLUE,
+        }}
+      />
+
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          StyleSheet.absoluteFillObject,
+          { transform: [{ translateY: orbTranslateY }], zIndex: 1 },
+        ]}
+      >
+        <Animated.View
+          style={[
+            referenceSplashStyles.tealOrb,
+            {
+              left: orbLeft,
+              top: orbTop,
+              width: orbDiameter,
+              height: orbDiameter,
+              borderRadius: orbDiameter / 2,
+              backgroundColor: SPLASH_PANEL_BLUE,
+            },
+          ]}
         />
-        <View style={referenceSplashStyles.brandTextWrap}>
-          <Text style={referenceSplashStyles.brandTitle} numberOfLines={1}>
-            Hope
-          </Text>
-          <Text style={referenceSplashStyles.brandByline} numberOfLines={1}>
-            by mrpotato
-          </Text>
-        </View>
-      </View>
-      <Text style={referenceSplashStyles.headline}>Pulling in good news for you</Text>
-
-      <Animated.View style={{ transform: [{ translateY: orbTranslateY }] }}>
-        <Animated.View style={referenceSplashStyles.tealOrb}>
+        <Animated.View
+          style={{
+            position: 'absolute',
+            left: screenW / 2 - eyeOffsetX - SPLASH_EYE_SIZE / 2,
+            top: eyeY,
+            width: SPLASH_EYE_SIZE,
+            height: SPLASH_EYE_SIZE,
+            transform: [{ translateX: eyeDriftX }],
+          }}
+        >
           <Animated.View
             style={{
-              position: 'absolute',
-              left: SPLASH_EYE_LEFT - SPLASH_ORB_LEFT,
-              top: SPLASH_EYE_TOP - SPLASH_ORB_TOP,
               width: SPLASH_EYE_SIZE,
               height: SPLASH_EYE_SIZE,
-              transform: [{ translateX: eyeDriftX }],
+              borderRadius: SPLASH_EYE_SIZE / 2,
+              backgroundColor: SPLASH_FACE_DARK,
+              transform: [{ scaleY: blinkAnim }],
             }}
-          >
-            <Animated.View
-              style={{
-                width: SPLASH_EYE_SIZE,
-                height: SPLASH_EYE_SIZE,
-                borderRadius: SPLASH_EYE_SIZE / 2,
-                backgroundColor: SPLASH_FACE_DARK,
-                transform: [{ scaleY: blinkAnim }],
-              }}
-            />
-          </Animated.View>
+          />
+        </Animated.View>
+        <Animated.View
+          style={{
+            position: 'absolute',
+            left: screenW / 2 + eyeOffsetX - SPLASH_EYE_SIZE / 2,
+            top: eyeY,
+            width: SPLASH_EYE_SIZE,
+            height: SPLASH_EYE_SIZE,
+            transform: [{ translateX: eyeDriftX }],
+          }}
+        >
           <Animated.View
             style={{
-              position: 'absolute',
-              left: SPLASH_EYE_RIGHT - SPLASH_ORB_LEFT,
-              top: SPLASH_EYE_TOP - SPLASH_ORB_TOP,
               width: SPLASH_EYE_SIZE,
               height: SPLASH_EYE_SIZE,
-              transform: [{ translateX: eyeDriftX }],
+              borderRadius: SPLASH_EYE_SIZE / 2,
+              backgroundColor: SPLASH_FACE_DARK,
+              transform: [{ scaleY: blinkAnim }],
             }}
-          >
-            <Animated.View
-              style={{
-                width: SPLASH_EYE_SIZE,
-                height: SPLASH_EYE_SIZE,
-                borderRadius: SPLASH_EYE_SIZE / 2,
-                backgroundColor: SPLASH_FACE_DARK,
-                transform: [{ scaleY: blinkAnim }],
-              }}
-            />
-          </Animated.View>
+          />
+        </Animated.View>
 
-          <Animated.View
-            style={[
-              referenceSplashStyles.mouthHost,
-              {
-                left: SPLASH_MOUTH_LEFT - SPLASH_ORB_LEFT,
-                top: SPLASH_MOUTH_TOP - SPLASH_ORB_TOP,
-                transform: [{ translateY: mouthTranslateY }],
-              },
-            ]}
-          >
-            <Svg width={SPLASH_MOUTH_W} height={SPLASH_MOUTH_H} viewBox={`0 0 ${SPLASH_MOUTH_W} ${SPLASH_MOUTH_H}`}>
-              <Path
-                d={mouthPathD}
-                stroke={SPLASH_FACE_DARK}
-                strokeWidth={SPLASH_MOUTH_STROKE}
-                strokeLinecap="round"
-                fill="none"
-              />
-            </Svg>
-          </Animated.View>
+        <Animated.View
+          style={[
+            referenceSplashStyles.mouthHost,
+            {
+              left: screenW / 2 - SPLASH_MOUTH_W / 2,
+              top: mouthY,
+              transform: [{ translateY: mouthTranslateY }],
+            },
+          ]}
+        >
+          <Svg width={SPLASH_MOUTH_W} height={SPLASH_MOUTH_H} viewBox={`0 0 ${SPLASH_MOUTH_W} ${SPLASH_MOUTH_H}`}>
+            <Path
+              d={mouthPathD}
+              stroke={SPLASH_FACE_DARK}
+              strokeWidth={SPLASH_MOUTH_STROKE}
+              strokeLinecap="round"
+              fill="none"
+            />
+          </Svg>
         </Animated.View>
       </Animated.View>
+
+      <View
+        style={{
+          position: 'absolute',
+          left: 24,
+          right: 24,
+          top: screenH * SPLASH_HEADLINE_TOP_RATIO,
+          alignItems: 'center',
+          zIndex: 2,
+        }}
+      >
+        <Text style={[referenceSplashStyles.headline, { maxWidth: Math.min(280, screenW - 48) }]}>
+          Pulling in good news for you
+        </Text>
+        <View style={{ height: 14 }} />
+        <View style={[referenceSplashStyles.progressTrack, { width: trackW }]}>
+          <Animated.View style={[referenceSplashStyles.progressFill, { width: fillWidth }]} />
+        </View>
+      </View>
+
+      <View
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: Math.max(insets.bottom, 24) + 16,
+          alignItems: 'center',
+          zIndex: 2,
+        }}
+      >
+        <FlowerLogo size={SPLASH_BRAND_ICON_SIZE} />
+        <View style={{ height: SPLASH_BRAND_GAP }} />
+        <Text style={referenceSplashStyles.brandTitle}>Hope</Text>
+        <Text style={referenceSplashStyles.brandByline}>by mrpotato</Text>
+      </View>
     </View>
   );
 }
 
-function ReferenceSplashOverlay({ fontsReady }: { fontsReady: boolean }) {
+function ReferenceSplashOverlay({
+  fontsReady,
+  progressAnim,
+}: {
+  fontsReady: boolean;
+  progressAnim: Animated.Value;
+}) {
   const { width, height } = useWindowDimensions();
-  const coverScale = Math.max(width / SPLASH_ARTBOARD_W, height / SPLASH_ARTBOARD_H);
-  const offsetX = (width - SPLASH_ARTBOARD_W * coverScale) / 2;
-  const offsetY = (height - SPLASH_ARTBOARD_H * coverScale) / 2;
+
+  useEffect(() => {
+    // #region agent log
+    debugRuntimeLog('run-splash-1', 'H3', 'App.tsx:ReferenceSplashOverlay:effect', 'splash overlay rendered', {
+      fontsReady,
+      width,
+      height,
+    });
+    // #endregion
+  }, [fontsReady, height, width]);
 
   return (
     <View style={referenceSplashStyles.overlayRoot} pointerEvents="auto">
       {!fontsReady ? (
         <View style={referenceSplashStyles.fontFallback}>
-          <ActivityIndicator size="large" color={SPLASH_TEAL} />
+          <ActivityIndicator size="large" color={SPLASH_PROGRESS_FILL} />
         </View>
       ) : (
-        <Animated.View
-          style={[
-            referenceSplashStyles.overlayCard,
-            {
-              width: SPLASH_ARTBOARD_W,
-              height: SPLASH_ARTBOARD_H,
-              left: offsetX,
-              top: offsetY,
-              transform: [{ scale: coverScale }],
-            },
-          ]}
-        >
-          <ReferenceSplashArtboard />
-        </Animated.View>
+        <ReferenceSplashArtboard progressAnim={progressAnim} />
       )}
     </View>
   );
@@ -866,12 +783,7 @@ const referenceSplashStyles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#FFFFFF',
     zIndex: 50,
-  },
-  overlayCard: {
-    position: 'absolute',
-    borderRadius: SPLASH_CORNER_RADIUS,
     overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
   },
   fontFallback: {
     flex: 1,
@@ -880,30 +792,35 @@ const referenceSplashStyles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   artboard: {
-    width: SPLASH_ARTBOARD_W,
-    height: SPLASH_ARTBOARD_H,
+    flex: 1,
     backgroundColor: '#FFFFFF',
   },
-  brandRow: {
+  headline: {
+    fontSize: SPLASH_HEADLINE_SIZE,
+    lineHeight: SPLASH_HEADLINE_LINE_HEIGHT,
+    fontWeight: 'normal',
+    color: '#000000',
+    textAlign: 'center',
+    fontFamily: fontSans.w400,
+  },
+  progressTrack: {
+    height: SPLASH_PROGRESS_HEIGHT,
+    borderRadius: 20,
+    backgroundColor: SPLASH_PROGRESS_TRACK,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: SPLASH_PROGRESS_HEIGHT,
+    borderRadius: 20,
+    backgroundColor: SPLASH_PROGRESS_FILL,
+  },
+  tealOrb: {
     position: 'absolute',
-    top: SPLASH_BRAND_ROW_TOP,
-    left: SPLASH_BRAND_ROW_LEFT,
-    width: SPLASH_BRAND_ROW_W,
-    height: SPLASH_BRAND_ROW_H,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    gap: SPLASH_BRAND_GAP,
   },
-  brandIcon: {
-    width: SPLASH_BRAND_ICON_SIZE,
-    height: SPLASH_BRAND_ICON_SIZE,
-    borderRadius: 18,
-  },
-  brandTextWrap: {
-    width: SPLASH_BRAND_TEXT_W,
-    height: SPLASH_BRAND_TEXT_H,
-    justifyContent: 'flex-start',
+  mouthHost: {
+    position: 'absolute',
+    width: SPLASH_MOUTH_W,
+    height: SPLASH_MOUTH_H,
   },
   brandTitle: {
     color: '#000000',
@@ -918,32 +835,6 @@ const referenceSplashStyles = StyleSheet.create({
     lineHeight: 19,
     fontFamily: fontSans.w400,
     fontWeight: 'normal',
-  },
-  headline: {
-    position: 'absolute',
-    left: SPLASH_HEADLINE_LEFT,
-    top: SPLASH_HEADLINE_TOP,
-    width: SPLASH_HEADLINE_W,
-    fontSize: SPLASH_HEADLINE_SIZE,
-    lineHeight: SPLASH_HEADLINE_LINE_HEIGHT,
-    fontWeight: 'normal',
-    color: '#000000',
-    textAlign: 'center',
-    fontFamily: fontSans.w400,
-  },
-  tealOrb: {
-    position: 'absolute',
-    left: SPLASH_ORB_LEFT,
-    top: SPLASH_ORB_TOP,
-    width: SPLASH_ORB_DIAMETER,
-    height: SPLASH_ORB_DIAMETER,
-    borderRadius: SPLASH_ORB_DIAMETER / 2,
-    backgroundColor: SPLASH_TEAL,
-  },
-  mouthHost: {
-    position: 'absolute',
-    width: SPLASH_MOUTH_W,
-    height: SPLASH_MOUTH_H,
   },
 });
 
@@ -1922,7 +1813,21 @@ async function fetchAllStories(
   locationContext?: LocationContext,
   visitCount = 0,
   seenStories: Record<string, number> = {},
+  options?: {
+    onCategoryProgress?: (
+      category: Exclude<NewsCategory, 'All'>,
+      completedCount: number,
+      totalCount: number,
+    ) => void;
+  },
 ) {
+  // #region agent log
+  debugRuntimeLog('run-splash-2', 'H1', 'App.tsx:fetchAllStories:start', 'fetchAllStories entered', {
+    hasLocationContext: Boolean(locationContext),
+    visitCount,
+    seenCount: Object.keys(seenStories).length,
+  });
+  // #endregion
   const fetchStartedAt = Date.now();
   const diagnostics = createEmptyDiagnostics();
   const allAcceptedStories = new Map<string, NewsItem>();
@@ -1931,8 +1836,10 @@ async function fetchAllStories(
     (category): category is Exclude<NewsCategory, 'All'> => category !== 'All',
   );
 
+  let categoriesFinished = 0;
   const categoryResults = await Promise.all(
     categoriesToFetch.map(async (category, categoryIndex) => {
+      try {
       const categoryStartedAt = Date.now();
       const categoryDiagnostics = createEmptyDiagnostics();
       const acceptedStories = new Map<string, NewsItem>();
@@ -2036,15 +1943,55 @@ async function fetchAllStories(
             let semanticResults = new Map<string, MobileBertClassificationResult>();
 
             if (safeCandidates.length > 0) {
+              const remainingNeeded = Math.max(0, categoryTargetStoryCount - acceptedStories.size);
+              const candidatesToClassify = safeCandidates.slice(0, remainingNeeded);
+              // #region agent log
+              debugRuntimeLog(
+                'run-splash-2',
+                'H2',
+                'App.tsx:fetchAllStories:beforeClassify',
+                'about to classify safe candidates',
+                {
+                  category,
+                  candidateCount: safeCandidates.length,
+                  remainingNeeded,
+                  classifiedCount: candidatesToClassify.length,
+                },
+              );
+              // #endregion
               try {
                 const classificationResult = await classifyStoriesWithMobileBert(
-                  safeCandidates,
+                  candidatesToClassify,
                 );
+                // #region agent log
+                debugRuntimeLog(
+                  'run-splash-2',
+                  'H2',
+                  'App.tsx:fetchAllStories:afterClassify',
+                  'classification completed',
+                  {
+                    category,
+                    resultCount: classificationResult.results.size,
+                    classifiedCount: candidatesToClassify.length,
+                    freshClassified: classificationResult.freshClassified,
+                    cacheHits: classificationResult.cacheHits,
+                  },
+                );
+                // #endregion
                 semanticResults = classificationResult.results;
                 mobileBertFreshClassified += classificationResult.freshClassified;
                 mobileBertCacheHits += classificationResult.cacheHits;
                 mobileBertClassified += classificationResult.cacheHits + classificationResult.freshClassified;
               } catch {
+                // #region agent log
+                debugRuntimeLog(
+                  'run-splash-2',
+                  'H2',
+                  'App.tsx:fetchAllStories:classifyCatch',
+                  'classification failed; using empty map',
+                  { category, candidateCount: safeCandidates.length },
+                );
+                // #endregion
                 semanticResults = new Map();
               }
             }
@@ -2107,6 +2054,10 @@ async function fetchAllStories(
           ruleClassified,
         } satisfies CategoryFetchMetrics,
       };
+      } finally {
+        categoriesFinished += 1;
+        options?.onCategoryProgress?.(category, categoriesFinished, categoriesToFetch.length);
+      }
     }),
   );
 
@@ -2125,6 +2076,14 @@ async function fetchAllStories(
     locationContext,
     targetStoryCount,
   );
+
+  // #region agent log
+  debugRuntimeLog('run-splash-2', 'H1', 'App.tsx:fetchAllStories:done', 'fetchAllStories resolved', {
+    totalAccepted: allAcceptedStories.size,
+    selectedStories: selectedStories.length,
+    fetchDurationMs: Date.now() - fetchStartedAt,
+  });
+  // #endregion
 
   return {
     stories: selectedStories,
@@ -2218,6 +2177,34 @@ export default function App() {
   const categoryModalTranslateY = useRef(new Animated.Value(motion.distance.modalEnterY)).current;
   const readerModalOpacity = useRef(new Animated.Value(0)).current;
   const readerModalTranslateY = useRef(new Animated.Value(motion.distance.modalEnterY)).current;
+
+  const splashProgressAnim = useRef(new Animated.Value(0)).current;
+  const splashProgressFloorRef = useRef(0);
+
+  const bumpSplashProgress = useCallback(
+    (next: number) => {
+      const clamped = Math.min(1, Math.max(splashProgressFloorRef.current, next));
+      splashProgressFloorRef.current = clamped;
+      Animated.timing(splashProgressAnim, {
+        toValue: clamped,
+        duration: 300,
+        easing: motion.easing.easeOut,
+        useNativeDriver: false,
+      }).start();
+    },
+    [splashProgressAnim],
+  );
+
+  const resetSplashProgress = useCallback(() => {
+    splashProgressFloorRef.current = 0;
+    splashProgressAnim.setValue(0);
+  }, [splashProgressAnim]);
+
+  useEffect(() => {
+    if (splashFontsReady) {
+      bumpSplashProgress(0.05);
+    }
+  }, [splashFontsReady, bumpSplashProgress]);
 
   const getPressScale = useCallback((key: string) => {
     const existing = pressScaleAnimsRef.current.get(key);
@@ -2348,14 +2335,22 @@ export default function App() {
       mode: 'load' | 'refresh' = 'load',
       nextLocationContext?: LocationContext,
     ) => {
+      // #region agent log
+      debugRuntimeLog('run-splash-1', 'H1', 'App.tsx:loadStories:start', 'loadStories invoked', {
+        mode,
+        hasLocationContext: Boolean(nextLocationContext),
+      });
+      // #endregion
       if (mode === 'load') {
         setLoading(true);
       } else {
+        resetSplashProgress();
         setRefreshing(true);
       }
 
       setError(null);
       setVisibleStoryCount(initialVisibleStoryCount);
+      bumpSplashProgress(0.15);
 
       try {
         const loadStartedAt = Date.now();
@@ -2370,10 +2365,24 @@ export default function App() {
           loadStoriesCache(),
           loadDiagnosticsCache(),
         ]);
+        bumpSplashProgress(0.2);
         const shouldReuseCache =
           mode === 'load' &&
           cached.stories.length > 0 &&
           Date.now() - cached.timestamp < storiesCacheTtlMs;
+
+        const fetchOptions =
+          mode === 'load'
+            ? {
+                onCategoryProgress: (
+                  _category: Exclude<NewsCategory, 'All'>,
+                  completedCount: number,
+                  totalCount: number,
+                ) => {
+                  bumpSplashProgress(0.2 + (completedCount / totalCount) * 0.65);
+                },
+              }
+            : undefined;
 
         const fetchedResult = shouldReuseCache
           ? {
@@ -2416,7 +2425,12 @@ export default function App() {
               categoryMetrics: [],
             } satisfies RefreshMetrics,
             }
-          : await fetchAllStories(nextLocationContext, visitCount, nextSeenStories);
+          : await fetchAllStories(nextLocationContext, visitCount, nextSeenStories, fetchOptions);
+
+        if (shouldReuseCache && mode === 'load') {
+          bumpSplashProgress(0.85);
+        }
+
         const latestStories = fetchedResult.stories;
         const sanitizedStories = sanitizeStories(latestStories);
         setDiagnostics(fetchedResult.diagnostics);
@@ -2447,7 +2461,9 @@ export default function App() {
         logRefreshMetrics(metrics);
         void postRefreshMetricsToGoogleSheets(metrics);
 
-        void enrichStories(sanitizedStories).then((enrichedStories) => {
+        bumpSplashProgress(0.92);
+
+        const enrichmentPromise = enrichStories(sanitizedStories).then((enrichedStories) => {
           if (latestLoadId.current !== loadId) {
             return;
           }
@@ -2456,17 +2472,50 @@ export default function App() {
           setAllStories(finalStories);
           void saveStoriesCache(finalStories);
         });
-      } catch (loadError) {
-        setError('Could not load live news right now. Pull to refresh and try again.');
-      } finally {
+
         if (mode === 'load') {
+          await Promise.race([
+            enrichmentPromise.catch(() => undefined),
+            new Promise<void>((resolve) => setTimeout(resolve, 800)),
+          ]);
+          bumpSplashProgress(1);
           setLoading(false);
         } else {
-          setRefreshing(false);
+          void enrichmentPromise;
+        }
+      } catch (loadError) {
+        // #region agent log
+        debugRuntimeLog('run-splash-1', 'H2', 'App.tsx:loadStories:catch', 'loadStories failed', {
+          mode,
+          errorName: loadError instanceof Error ? loadError.name : 'unknown',
+          errorMessage: loadError instanceof Error ? loadError.message : String(loadError),
+        });
+        // #endregion
+        setError('Could not load live news right now. Pull to refresh and try again.');
+        bumpSplashProgress(1);
+        if (mode === 'load') {
+          setLoading(false);
+        }
+      } finally {
+        // #region agent log
+        debugRuntimeLog('run-splash-1', 'H1', 'App.tsx:loadStories:finally', 'loadStories finalized', {
+          mode,
+        });
+        // #endregion
+        if (mode === 'refresh') {
+          splashProgressFloorRef.current = 1;
+          Animated.timing(splashProgressAnim, {
+            toValue: 1,
+            duration: 300,
+            easing: motion.easing.easeOut,
+            useNativeDriver: false,
+          }).start(() => {
+            setRefreshing(false);
+          });
         }
       }
     },
-    [],
+    [bumpSplashProgress, resetSplashProgress],
   );
 
   useEffect(() => {
@@ -2474,10 +2523,24 @@ export default function App() {
 
     const loadWithLocation = async () => {
       if (initialLoadStartedRef.current) {
+        // #region agent log
+        debugRuntimeLog(
+          'run-splash-1',
+          'H4',
+          'App.tsx:initialLoad:guard',
+          'initial load skipped due to guard',
+          { cancelled },
+        );
+        // #endregion
         return;
       }
 
       initialLoadStartedRef.current = true;
+      // #region agent log
+      debugRuntimeLog('run-splash-1', 'H4', 'App.tsx:initialLoad:start', 'initial load started', {
+        cancelled,
+      });
+      // #endregion
 
       try {
         let nextContext = locationContextRef.current;
@@ -2491,6 +2554,12 @@ export default function App() {
 
         await loadStories('load', nextContext);
       } catch (error) {
+        // #region agent log
+        debugRuntimeLog('run-splash-1', 'H2', 'App.tsx:initialLoad:catch', 'initial load fallback path', {
+          errorName: error instanceof Error ? error.name : 'unknown',
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+        // #endregion
         await loadStories('load', locationContextRef.current);
       }
     };
@@ -2501,6 +2570,18 @@ export default function App() {
       cancelled = true;
     };
   }, [detectLocation, loadStories]);
+
+  useEffect(() => {
+    // #region agent log
+    debugRuntimeLog('run-splash-1', 'H5', 'App.tsx:splashGate:state', 'splash gate state changed', {
+      loading,
+      refreshing,
+      splashFontsReady,
+      hasError: Boolean(error),
+      allStoriesCount: allStories.length,
+    });
+    // #endregion
+  }, [allStories.length, error, loading, refreshing, splashFontsReady]);
 
   useEffect(() => {
     setVisibleStoryCount(initialVisibleStoryCount);
@@ -2593,23 +2674,8 @@ export default function App() {
     prevVisibleUrlsRef.current = nextUrls;
   }, [visibleStories, activeCategory, getCardOpacity, getCardTranslateY]);
   return (
+    <SafeAreaProvider>
     <View style={styles.screen}>
-      <View pointerEvents="none" style={styles.shaderBackground}>
-        <WebView
-          originWhitelist={['*']}
-          source={{ html: liquidShaderHtml }}
-          style={styles.shaderWebView}
-          containerStyle={styles.shaderWebView}
-          javaScriptEnabled
-          scrollEnabled={false}
-          androidLayerType="hardware"
-          overScrollMode="never"
-          showsHorizontalScrollIndicator={false}
-          showsVerticalScrollIndicator={false}
-          allowsLinkPreview={false}
-          opaque={false}
-        />
-      </View>
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
 
@@ -2749,7 +2815,9 @@ export default function App() {
           ) : null}
         </AnimatedScrollView>
 
-        {loading || refreshing ? <ReferenceSplashOverlay fontsReady={splashFontsReady} /> : null}
+        {loading || refreshing ? (
+          <ReferenceSplashOverlay fontsReady={splashFontsReady} progressAnim={splashProgressAnim} />
+        ) : null}
 
         <Modal
           visible={categoryPickerVisible}
@@ -2894,6 +2962,7 @@ export default function App() {
         </Modal>
       </SafeAreaView>
     </View>
+    </SafeAreaProvider>
   );
 }
 
@@ -2901,14 +2970,6 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: theme.backgroundTop,
-  },
-  shaderBackground: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: liquidGradient.color2,
-  },
-  shaderWebView: {
-    flex: 1,
-    backgroundColor: 'transparent',
   },
   safeArea: {
     flex: 1,
