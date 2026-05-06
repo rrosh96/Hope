@@ -58,6 +58,8 @@ const palette = {
   softMint: '#A6DFDF',
   errorRose: '#FFE8E4',
   coral: '#e63946',
+  cardDark: '#1E293B',
+  metaSlate2: '#94A3B8',
 };
 
 const alpha = (hex: string, opacity: number) => {
@@ -1261,6 +1263,55 @@ function isReadableIntro(text: string) {
   return true;
 }
 
+function normalizeForComparison(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isDescriptionEchoingTitle(title: string, source: string, description: string) {
+  if (!description || !title) {
+    return false;
+  }
+
+  const normDesc = normalizeForComparison(description);
+  const normTitle = normalizeForComparison(title);
+  const normSource = normalizeForComparison(source);
+
+  if (normDesc === normTitle) {
+    return true;
+  }
+
+  if (!normDesc.startsWith(normTitle)) {
+    return false;
+  }
+
+  const remainder = normDesc.slice(normTitle.length).replace(/^[\s\-–—|•]+/, '').trim();
+
+  if (remainder.length === 0) {
+    return true;
+  }
+
+  if (normSource && remainder.startsWith(normalizeForComparison(normSource))) {
+    return true;
+  }
+
+  const boilerplateSuffixes = [
+    'read full coverage',
+    'read full article',
+    'read full story',
+    'full coverage',
+    'see full coverage',
+    'continue reading',
+    'more for you',
+    'follow us',
+    'google news',
+  ];
+
+  return boilerplateSuffixes.some((suffix) => remainder.startsWith(suffix));
+}
+
 function isLikelyClickbait(title: string) {
   const normalizedTitle = title.toLowerCase();
 
@@ -1380,7 +1431,7 @@ function extractParagraphIntro(html: string) {
   return paragraphMatches.slice(0, 2).join(' ');
 }
 
-function buildIntroFromHtml(html: string, fallbackText: string) {
+function buildIntroFromHtml(html: string, fallbackText: string, title = '', source = '') {
   const candidates = [
     extractMetaContent(html, 'og:description', 'property'),
     extractMetaContent(html, 'twitter:description', 'name'),
@@ -1389,11 +1440,14 @@ function buildIntroFromHtml(html: string, fallbackText: string) {
     fallbackText,
   ]
     .map((candidate) => stripHtml(candidate))
-    .filter((candidate) => isReadableIntro(candidate));
+    .filter((candidate) => isReadableIntro(candidate))
+    .filter((candidate) => !isDescriptionEchoingTitle(title, source, candidate));
 
   const safeFallback = truncateWords(stripHtml(fallbackText), maxIntroWords);
+  const safeFiltered =
+    !isDescriptionEchoingTitle(title, source, safeFallback) ? safeFallback : '';
 
-  return truncateWords(candidates[0] ?? safeFallback, maxIntroWords);
+  return truncateWords(candidates[0] ?? safeFiltered, maxIntroWords);
 }
 
 function formatRelativeTime(dateString?: string) {
@@ -1465,6 +1519,12 @@ function deriveSource(item: Record<string, unknown>) {
   return 'Unknown source';
 }
 
+function isFeedTruncatedTitle(rawFeedTitle: string): boolean {
+  const lastDash = rawFeedTitle.lastIndexOf(' - ');
+  const titlePart = lastDash > 20 ? rawFeedTitle.slice(0, lastDash).trim() : rawFeedTitle.trim();
+  return /[\s.]*\.{3}$|[\s…]*…$/.test(titlePart);
+}
+
 function cleanTitle(title?: string) {
   if (!title) {
     return 'Untitled story';
@@ -1473,11 +1533,7 @@ function cleanTitle(title?: string) {
   const decoded = decodeHtml(title).trim();
   const lastDashIndex = decoded.lastIndexOf(' - ');
 
-  if (lastDashIndex > 20) {
-    return decoded.slice(0, lastDashIndex).trim();
-  }
-
-  return decoded;
+  return lastDashIndex > 20 ? decoded.slice(0, lastDashIndex).trim() : decoded;
 }
 
 function inferLocation(description: string) {
@@ -1707,7 +1763,7 @@ async function enrichStoryIntro(story: NewsItem) {
     const html = await response.text();
     return {
       ...story,
-      description: buildIntroFromHtml(html, story.description),
+      description: buildIntroFromHtml(html, story.description, story.title, story.source),
     };
   } catch {
     return {
@@ -1746,7 +1802,7 @@ async function fetchFeedUrl(feed: FeedSource, category: NewsCategory) {
     .map((item: Record<string, unknown>, index: number) => {
       const publishedAt =
         typeof item.pubDate === 'string' ? item.pubDate : '';
-      const description = stripHtml(
+      const rawDescription = stripHtml(
         typeof item.description === 'string' ? item.description : '',
       );
       const url =
@@ -1756,14 +1812,19 @@ async function fetchFeedUrl(feed: FeedSource, category: NewsCategory) {
       const source = normalizeSourceName(feed.sourceName ?? deriveSource(item));
       const fallbackSource = deriveSourceFromUrl(url);
       const trustedSource = hasCredibleSource(source) ? source : fallbackSource;
+      const rawFeedTitle = typeof item.title === 'string' ? item.title : '';
+      const rawTitle = isFeedTruncatedTitle(rawFeedTitle) ? '' : cleanTitle(rawFeedTitle || undefined);
+      const description = isDescriptionEchoingTitle(rawTitle, trustedSource, rawDescription)
+        ? ''
+        : rawDescription;
 
       const story: NewsItem = {
         id:
           typeof item.guid === 'string' && item.guid.trim()
             ? item.guid.trim()
             : `${category}-${index}`,
-        title: cleanTitle(typeof item.title === 'string' ? item.title : undefined),
-        description: description || `Latest ${category.toLowerCase()} story from ${source}.`,
+        title: rawTitle,
+        description,
         category: feed.category ?? category,
         location: inferLocation(description),
         time: formatRelativeTime(publishedAt),
@@ -2618,7 +2679,7 @@ export default function App() {
   }, [selectedNews, readerModalOpacity, readerModalTranslateY]);
 
   const availableStories = getStoriesForCategory(
-    sanitizeStories(allStories).filter((story) => !seenStories[story.url]),
+    sanitizeStories(allStories).filter((story) => !seenStories[story.url] && !!story.description),
     activeCategory,
     locationContext,
   );
@@ -2717,7 +2778,7 @@ export default function App() {
               onPressOut={() => setPressed('category-dropdown', false)}
               onPress={() => setCategoryPickerVisible(true)}
               accessibilityRole="button"
-              accessibilityLabel={`Category, ${activeCategory}. Opens list.`}
+              accessibilityLabel={`Category filter, ${activeCategory}. Opens list.`}
             >
               <Animated.View
                 style={[
@@ -2725,6 +2786,7 @@ export default function App() {
                   { transform: [{ scale: getPressScale('category-dropdown') }] },
                 ]}
               >
+                <Text style={styles.categoryDropdownPrefix}>Category</Text>
                 <Text style={styles.categoryDropdownLabel}>{activeCategory}</Text>
                 <View style={styles.categoryDropdownChevronWrap}>
                   <Svg width={12} height={8} viewBox="0 0 12 8" accessibilityElementsHidden>
@@ -2771,22 +2833,22 @@ export default function App() {
                       setSelectedNews(story);
                       void markStorySeen(story.url);
                     }}
+                    accessibilityHint="Opens the source article"
                   >
-                    <View style={styles.storyVisualFallback}>
-                      <Text style={styles.storyVisualHeadline}>{story.title}</Text>
-                      <Text style={styles.storyVisualSource}>{story.source}</Text>
-                    </View>
+                    <Text style={styles.storyHeadline}>{story.title}</Text>
 
-                    <View style={styles.storyBody}>
-                      <Text style={styles.storyDescription}>{story.description}</Text>
+                    {story.description ? (
+                      <View style={styles.storySummaryWrap}>
+                        <Text style={styles.storySummary} numberOfLines={3}>{story.description}</Text>
+                      </View>
+                    ) : null}
 
-                      <View style={styles.storyCardFooter}>
-                        <Text style={styles.storyCategory} numberOfLines={1}>
-                          {story.category}
-                        </Text>
-                        <Text style={styles.storyTime} numberOfLines={1}>
-                          {story.time}
-                        </Text>
+                    <View style={styles.storyMetaRow}>
+                      <Text style={styles.storyMetaSource} numberOfLines={1}>{story.source}</Text>
+                      <View style={styles.storyMetaRight}>
+                        <Text style={styles.storyMetaText} numberOfLines={1}>{story.category}</Text>
+                        <Text style={styles.storyMetaDot}>.</Text>
+                        <Text style={styles.storyMetaText} numberOfLines={1}>{story.time}</Text>
                       </View>
                     </View>
                   </Pressable>
@@ -3023,7 +3085,7 @@ const styles = StyleSheet.create({
   categoryDropdown: {
     alignSelf: 'flex-start',
     marginBottom: 20,
-    backgroundColor: palette.white,
+    backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: theme.textMeta,
     borderRadius: 10,
@@ -3035,6 +3097,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+  },
+  categoryDropdownPrefix: {
+    color: theme.textMeta,
+    fontSize: 14,
+    lineHeight: 19,
+    fontFamily: fontSans.w400,
+    fontWeight: 'normal',
+    marginRight: 4,
   },
   categoryDropdownLabel: {
     color: theme.textMeta,
@@ -3114,65 +3184,68 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     backgroundColor: theme.surfaceSecondary,
     borderRadius: 16,
-    overflow: 'hidden',
+    paddingTop: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 16,
+    borderWidth: 1,
+    borderColor: palette.headerBlue,
     shadowColor: theme.shadow,
     shadowOpacity: 0.05,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
     elevation: 2,
   },
-  storyVisualFallback: {
-    backgroundColor: theme.surfaceHeader,
-    paddingTop: 16,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    justifyContent: 'flex-start',
+  storyHeadline: {
+    color: palette.cardDark,
+    fontSize: 18,
+    lineHeight: 25,
+    fontFamily: fontSans.w500,
+    fontWeight: 'normal',
+  },
+  storySummaryWrap: {
+    flexDirection: 'column',
     gap: 16,
   },
-  storyVisualHeadline: {
-    color: theme.textPrimary,
+  storySummary: {
+    color: palette.bodySlate,
     fontSize: 16,
-    fontFamily: fontSans.w500,
-    fontWeight: 'normal',
     lineHeight: 22,
-  },
-  storyVisualSource: {
-    color: theme.textMeta,
-    fontSize: 12,
-    lineHeight: 16,
-    fontFamily: fontSans.w500,
+    fontFamily: fontSans.w400,
     fontWeight: 'normal',
   },
-  storyBody: {
-    paddingTop: 16,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    gap: 16,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: theme.borderSoft,
-  },
-  storyCardFooter: {
+  storyMetaRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 0,
+    alignItems: 'flex-start',
+    gap: 16,
+    height: 16,
   },
-  storyCategory: {
-    color: theme.textMeta,
-    fontSize: 12,
+  storyMetaSource: {
+    color: palette.metaSlate2,
+    fontSize: 14,
     lineHeight: 16,
     fontFamily: fontSans.w500,
     fontWeight: 'normal',
-    flexShrink: 1,
-    marginRight: 8,
   },
-  storyTime: {
-    color: theme.textTimestamp,
-    fontSize: 12,
+  storyMetaRight: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+    flex: 1,
+  },
+  storyMetaText: {
+    color: palette.metaSlate2,
+    fontSize: 14,
     lineHeight: 16,
     fontFamily: fontSans.w500,
     fontWeight: 'normal',
-    flexShrink: 0,
+  },
+  storyMetaDot: {
+    color: palette.metaSlate2,
+    fontSize: 14,
+    lineHeight: 16,
+    fontFamily: fontSans.w500,
+    fontWeight: 'normal',
   },
   loadMoreButton: {
     marginTop: 4,
@@ -3186,13 +3259,6 @@ const styles = StyleSheet.create({
     color: theme.textOnDark,
     fontSize: 15,
     fontFamily: fontSans.w600,
-    fontWeight: 'normal',
-  },
-  storyDescription: {
-    color: theme.textMeta,
-    fontSize: 14,
-    lineHeight: 19,
-    fontFamily: fontSans.w400,
     fontWeight: 'normal',
   },
   modalScreen: {
@@ -3220,7 +3286,7 @@ const styles = StyleSheet.create({
   },
   readerEyebrow: {
     color: theme.textSecondary,
-    fontSize: 12,
+    fontSize: 14,
     fontFamily: fontSans.w500,
     fontWeight: 'normal',
     marginBottom: 4,
@@ -3261,14 +3327,14 @@ const styles = StyleSheet.create({
   },
   readerMetaText: {
     color: theme.textMeta,
-    fontSize: 12,
+    fontSize: 14,
     lineHeight: 16,
     fontFamily: fontSans.w500,
     fontWeight: 'normal',
   },
   readerMetaDot: {
     color: theme.textMeta,
-    fontSize: 12,
+    fontSize: 14,
     fontFamily: fontSans.w500,
     fontWeight: 'normal',
   },
